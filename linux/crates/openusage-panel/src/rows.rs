@@ -312,7 +312,8 @@ fn paint_bar(
     marker: Option<f64>,
 ) {
     let dark = prefers_dark();
-    let bar_h = 5.0;
+    // Apple's linear progress bar in the Mac row's 9 pt frame is about 6 px thick.
+    let bar_h = 6.0;
     let y = (height as f64 - bar_h) / 2.0;
     let radius = bar_h / 2.0;
     let track = if dark {

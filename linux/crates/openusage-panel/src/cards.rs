@@ -77,16 +77,25 @@ fn provider_card(
         .map(|index| model.accounts[*index].account.card_id())
         .collect();
     let provider_id = card_ids[0].clone();
-    let plan_on_header = !model::shows_account_label(first, siblings);
-    let header = header(first, plan_on_header, &card_ids, &actions.on_share);
+    // As on the Mac (`DashboardProviderSection`): the provider's name and logo head the section above
+    // its card; a single account named after its provider shows just its plan, inside the card.
+    let section = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    section.add_css_class("provider-section");
+    let plan_in_caption = !model::shows_account_label(first, siblings);
+    let header = header(first, &card_ids, &actions.on_share);
     bind_provider_menu(&header, indexes[0], first, &card_ids, actions);
-    inner.append(&header);
+    section.append(&header);
+    if plan_in_caption {
+        if let Some(caption) = plan_caption(first) {
+            inner.append(&caption);
+        }
+    }
 
     let mut targets = vec![Target {
         kind: Kind::Provider,
         scope: String::new(),
         id: provider_id,
-        widget: card.clone().upcast(),
+        widget: section.clone().upcast(),
     }];
     let scope = first.account.kind.raw().to_string();
     for (offset, index) in indexes.iter().enumerate() {
@@ -119,10 +128,8 @@ fn provider_card(
         inner.append(&block);
     }
     card.append(&inner);
-    // The card is appended by the caller via the returned widget... we need to append here.
-    // Returning targets whose widgets are inside `card`. The caller must append `card`.
-    // Stash the card by appending to a passed list.
-    list.append(&card);
+    section.append(&card);
+    list.append(&section);
     targets
 }
 
@@ -309,13 +316,21 @@ fn menu_inline(index: usize, account: &DashboardAccount, actions: &Actions) -> g
     menu::inline(&rows, Rc::new(move |act| on_menu(index, act)))
 }
 
-fn header(
-    account: &DashboardAccount,
-    plan_on_header: bool,
-    card_ids: &[String],
-    on_share: &Rc<dyn Fn(Vec<String>)>,
-) -> gtk4::Box {
+/// The section header: the provider's name, a drag handle for the provider, and its logo on the right,
+/// which shares the card.
+fn header(account: &DashboardAccount, card_ids: &[String], on_share: &Rc<dyn Fn(Vec<String>)>) -> gtk4::Box {
     let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row.add_css_class("section-header");
+    row.set_margin_start(12);
+    row.set_margin_end(12);
+    let name = gtk4::Label::new(Some(account.account.kind.display_name()));
+    name.add_css_class("provider");
+    name.set_hexpand(true);
+    name.set_halign(gtk4::Align::Start);
+    name.set_xalign(0.0);
+    name.set_ellipsize(pango::EllipsizeMode::End);
+    drag::bind_source(&name, Kind::Provider, "", &card_ids[0]);
+    row.append(&name);
     let ids = card_ids.to_vec();
     let share = on_share.clone();
     let logo = gtk4::Button::new();
@@ -324,26 +339,24 @@ fn header(
     logo.set_child(Some(&icons::image(account.account.kind, 16)));
     logo.connect_clicked(move |_| share(ids.clone()));
     row.append(&logo);
-    let handle = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    handle.set_hexpand(true);
-    let name = gtk4::Label::new(Some(account.account.kind.display_name()));
-    name.add_css_class("provider");
-    name.set_hexpand(true);
-    name.set_halign(gtk4::Align::Start);
-    name.set_xalign(0.0);
-    name.set_ellipsize(pango::EllipsizeMode::End);
-    handle.append(&name);
-    if plan_on_header {
-        if let Some(plan) = account.plan.as_deref() {
-            handle.append(&plan_badge(plan));
-        }
-        if let Some(mark) = status_mark(account) {
-            handle.append(&mark);
-        }
-    }
-    drag::bind_source(&handle, Kind::Provider, "", &card_ids[0]);
-    row.append(&handle);
     row
+}
+
+/// The plan (and a status mark) of a single account named after its provider, at the top of its card.
+fn plan_caption(account: &DashboardAccount) -> Option<gtk4::Box> {
+    let plan = account.plan.as_deref().filter(|plan| !plan.is_empty());
+    let mark = status_mark(account);
+    if plan.is_none() && mark.is_none() {
+        return None;
+    }
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    if let Some(plan) = plan {
+        row.append(&plan_badge(plan));
+    }
+    if let Some(mark) = mark {
+        row.append(&mark);
+    }
+    Some(row)
 }
 
 fn preview_offer(account: &DashboardAccount, preview: bool) -> Option<claims::ClaimOffer> {

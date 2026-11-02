@@ -7,14 +7,15 @@ window.openusage {
 }
 
 window.openusage .panel {
-  background: #f4f4f5;
+  background: #fbfbfb;
   color: #1d1d1f;
   border-radius: 16px;
   border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+/* Like the Mac's quaternarySystemFill: a faint gray over the panel in light, a lift in dark. */
 window.openusage .card {
-  background: #ffffff;
+  background: rgba(0, 0, 0, 0.04);
   border-radius: 12px;
   border: 1px solid rgba(0, 0, 0, 0.06);
 }
@@ -362,7 +363,7 @@ window.openusage .copied-pill {
   font-weight: 650;
 }
 /* The share image's root: it is not inside .panel, so it carries the panel's text color itself. */
-window.openusage .share-sheet { background: #f4f4f5; color: #1d1d1f; padding: 16px; min-width: 360px; }
+window.openusage .share-sheet { background: #fbfbfb; color: #1d1d1f; padding: 16px; min-width: 360px; }
 @media (prefers-color-scheme: dark) {
   window.openusage:not(.force-light) .share-sheet { background: #1c1c1e; color: #f5f5f7; }
 }
