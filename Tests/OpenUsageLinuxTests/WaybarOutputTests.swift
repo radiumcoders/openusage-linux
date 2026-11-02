@@ -95,6 +95,7 @@ final class WaybarOutputTests: XCTestCase {
         let payload = try decode(model)
         XCTAssertEqual(payload.classes, ["empty"])
         XCTAssertEqual(payload.alt, "empty")
+        XCTAssertTrue(payload.tooltip.contains("openusage add &lt;provider&gt;"), "an empty module says how to add an account")
         XCTAssertEqual(payload.text, "◆")
         XCTAssertEqual(payload.percentage, 0)
     }

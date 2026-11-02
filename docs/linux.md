@@ -147,7 +147,9 @@ journalctl --user -u waybar -f
 openusage waybar
 ```
 
-A line looks like `OpenUsage notice: [refresh] …`. Credentials and response bodies are not logged.
+A line looks like `OpenUsage notice: [refresh] …`. Notices, warnings, and errors always print; set
+`OPENUSAGE_VERBOSE=1` to add info and debug lines, such as each HTTP request's endpoint and status.
+Credentials and response bodies are not logged.
 
 A locked keyring makes `secret-tool` fail, and the account reports that OpenUsage could not use the
 keyring. Unlock it (log in, or unlock GNOME Keyring) and run `openusage refresh`. This reads one item

@@ -80,6 +80,8 @@ enum WaybarOutput {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
+    static let emptyTooltip = "<b>OpenUsage</b>\nNo accounts yet. Add one in a terminal:\nopenusage add &lt;provider&gt;"
+
     static func classes(for model: WaybarViewModel) -> [String] {
         guard model.hasAccounts else { return ["empty"] }
         var names = [model.severity.rawValue]
@@ -96,7 +98,7 @@ enum WaybarOutput {
         let names = classes(for: model)
         let payload = Payload(
             text: strip(model.content, icon: model.icon),
-            tooltip: tooltip(model.accounts),
+            tooltip: model.hasAccounts ? tooltip(model.accounts) : emptyTooltip,
             classes: names,
             percentage: model.percentage,
             alt: names.joined(separator: " ")

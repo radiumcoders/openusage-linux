@@ -1,5 +1,7 @@
 // Linux stand-in for the parts of Apple's `os` module the shared OpenUsage code uses: the unfair lock
-// and unified logging. Log lines go to stderr, which Waybar and systemd hand to the journal.
+// and unified logging. Log lines go to stderr, which Waybar and systemd hand to the journal. Like unified
+// logging, which keeps info and debug lines out of view, those two levels print only when
+// OPENUSAGE_VERBOSE=1, so commands run in a terminal show only notices, warnings, and errors.
 import Foundation
 import Synchronization
 
@@ -76,7 +78,10 @@ public struct Logger: Sendable {
         self.category = category
     }
 
+    private static let verbose = ProcessInfo.processInfo.environment["OPENUSAGE_VERBOSE"] == "1"
+
     public func log(level: OSLogType, _ message: OSLogMessage) {
+        if level == .info || level == .debug, !Self.verbose { return }
         let line = "\(subsystem) \(level.label): \(message.text)\n"
         Self.output.withLock { _ in
             FileHandle.standardError.write(Data(line.utf8))
