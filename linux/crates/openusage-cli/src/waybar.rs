@@ -268,7 +268,9 @@ fn metric_markup(data: &WidgetData, absolute: bool, now: DateTime<Utc>) -> Strin
             }
         }
     }
-    parts.push(escape(&data.value_text()));
+    // The Mac row's wording: "63% left", "$12 left", "$49.85 · 35.8M tokens".
+    let amount = if data.has_data && data.is_bounded() { data.amount_text() } else { data.unbounded_figures().join(" · ") };
+    parts.push(escape(&amount));
     if let Some(reset) = reset_label(data, absolute, now) {
         if !reset.is_empty() {
             parts.push(escape(&reset));
@@ -450,6 +452,7 @@ mod tests {
         assert_eq!(quiet["class"], serde_json::json!(["normal"]));
         assert_eq!(quiet["percentage"], 10);
         assert!(quiet["tooltip"].as_str().unwrap().contains("████████") || quiet["tooltip"].as_str().unwrap().contains('█'));
+        assert!(quiet["tooltip"].as_str().unwrap().contains("90% left"), "reads like the Mac row: {}", quiet["tooltip"]);
 
         let hot = account("A&B <c>");
         let old = now - chrono::Duration::minutes(11);

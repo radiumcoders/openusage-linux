@@ -73,6 +73,12 @@ impl Vault for SecretToolVault {
         let account = id.to_string().to_uppercase();
         let output = self.run(&["lookup", "service", &self.service, "account", &account], None)?;
         match output.status {
+            // An item with an empty secret holds no sign-in: report it missing, so the account asks to
+            // sign in again instead of showing a keyring error.
+            0 if output.stdout.iter().all(u8::is_ascii_whitespace) => {
+                crate::log::warn("auth:accounts", &format!("keyring item for {account} is empty; treating the sign-in as missing"));
+                Ok(None)
+            }
             0 => serde_json::from_slice(&output.stdout)
                 .map(Some)
                 .map_err(|_| ProviderError::Vault("the stored sign-in is unreadable".into())),
@@ -99,6 +105,30 @@ impl Vault for SecretToolVault {
 }
 
 /// Holds sign-ins in memory: tests, and a new sign-in proving itself before it is saved.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::account::OAuthTokens;
+
+    /// Runs against the real Secret Service under a throwaway service name; skipped without a keyring.
+    #[test]
+    fn round_trips_a_large_oauth_credential_through_secret_tool() {
+        let vault = SecretToolVault { service: format!("com.robinebers.openusage.test.{}", Uuid::new_v4()), ..Default::default() };
+        let id = Uuid::new_v4();
+        let mut tokens = OAuthTokens::new("a".repeat(1800));
+        tokens.refresh_token = Some("r".repeat(400));
+        tokens.extras.insert(OAuthTokens::IDENTITY_KEY.into(), "acct:org".into());
+        let credential = Credential::OAuth(tokens);
+        if vault.save(id, &credential).is_err() {
+            eprintln!("no usable keyring here; skipping");
+            return;
+        }
+        assert_eq!(vault.load(id).unwrap(), Some(credential));
+        vault.delete(id).unwrap();
+        assert_eq!(vault.load(id).unwrap(), None);
+    }
+}
+
 #[derive(Default)]
 pub struct MemoryVault {
     items: Mutex<std::collections::HashMap<Uuid, Credential>>,
