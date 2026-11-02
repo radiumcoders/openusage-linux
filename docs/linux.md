@@ -42,7 +42,9 @@ and a code field; a device code is shown large with **Copy** and **Open**; an AP
 field with a link to the key page. **Needs Attention** uses **Fix** to open the account. Right-click an
 account header for refresh, copy, the provider's links, sign-in again, and remove. Settings stores the
 Mac keys for quota alerts, how many limits the bar shows, used or left, and countdown or exact reset
-times. Clicking an amount or a reset on the dashboard flips the same two settings.
+times. Clicking an amount or a reset on the dashboard flips the same two settings. A **Limit Resets** row has
+**Claim** when a reset can be used now (Claude and ChatGPT), and a history row shows its top models
+when the provider reports them.
 
 ## Add an account
 
