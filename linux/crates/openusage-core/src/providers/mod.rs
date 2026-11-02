@@ -55,21 +55,6 @@ pub fn login(kind: ProviderKind, method: &LoginMethod) -> Box<dyn Login> {
     }
 }
 
-/// A provider not ported yet: its reads and sign-ins fail with a clear message.
-pub(crate) struct NotPorted(pub ProviderKind);
-
-impl Provider for NotPorted {
-    fn fetch(&self, _ctx: &mut FetchContext) -> Result<ProviderUsage, ProviderError> {
-        Err(ProviderError::Unavailable(format!("{} isn't supported in this build yet.", self.0.display_name())))
-    }
-}
-
-impl Login for NotPorted {
-    fn login(&self, _prompter: &dyn LoginPrompter, _http: &dyn HttpClient) -> Result<(String, Credential), LoginError> {
-        Err(LoginError::Failed(format!("{} sign-in isn't supported in this build yet.", self.0.display_name())))
-    }
-}
-
 /// Reads one account with `credential` held in memory, without touching the keyring: an API-key sign-in
 /// proves its key this way before it is saved (the Swift `APIKeyLogin`).
 pub(crate) fn check_credential(

@@ -65,6 +65,8 @@ fn system_prefers_dark() -> bool {
             gtk4::InterfaceColorScheme::Light => return false,
             _ => {}
         }
+        // Desktops that predate the color-scheme setting (GTK 4.20) still set the older prefer-dark flag.
+        #[allow(deprecated)]
         if settings.is_gtk_application_prefer_dark_theme() {
             return true;
         }

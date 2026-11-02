@@ -19,6 +19,7 @@ impl StatusFile {
         Self { path: paths::state_dir().join("status.json") }
     }
 
+    #[cfg(test)]
     pub(super) fn at(path: PathBuf) -> Self {
         Self { path }
     }
