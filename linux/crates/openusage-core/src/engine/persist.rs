@@ -16,7 +16,9 @@ pub(super) struct StatusFile {
 
 impl StatusFile {
     pub(super) fn open() -> Self {
-        Self { path: paths::state_dir().join("status.json") }
+        Self {
+            path: paths::state_dir().join("status.json"),
+        }
     }
 
     #[cfg(test)]
@@ -32,12 +34,17 @@ impl StatusFile {
     }
 
     fn read_unlocked(&self) -> BTreeMap<String, AccountStatus> {
-        let Ok(data) = fs::read(&self.path) else { return BTreeMap::new() };
+        let Ok(data) = fs::read(&self.path) else {
+            return BTreeMap::new();
+        };
         if data.is_empty() {
             return BTreeMap::new();
         }
         serde_json::from_slice(&data).unwrap_or_else(|error| {
-            log::warn("refresh", &format!("status decode failed, ignoring stored refresh status: {error}"));
+            log::warn(
+                "refresh",
+                &format!("status decode failed, ignoring stored refresh status: {error}"),
+            );
             BTreeMap::new()
         })
     }
@@ -84,8 +91,17 @@ impl Lock {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let file = OpenOptions::new().create(true).read(true).write(true).truncate(false).open(path.with_extension("lock"))?;
-        let operation = if exclusive { libc::LOCK_EX } else { libc::LOCK_SH };
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(path.with_extension("lock"))?;
+        let operation = if exclusive {
+            libc::LOCK_EX
+        } else {
+            libc::LOCK_SH
+        };
         if unsafe { libc::flock(file.as_raw_fd(), operation) } != 0 {
             return Err(std::io::Error::last_os_error());
         }

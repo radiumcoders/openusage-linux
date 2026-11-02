@@ -34,21 +34,49 @@ cargo build --release --manifest-path linux/Cargo.toml
 `openusage panel`, or `openusage-panel --toggle`, opens and closes the usage panel. Waybar's left
 click runs that. The panel reads the same accounts, snapshots, and refresh status as the bar.
 
+The **⋯** menu opens **Accounts** and **Settings** (Return opens Accounts from the dashboard). Accounts
+lists every account in saved order. An account's page renames it, removes it, and offers **Sign In
+Again** when that account has a problem. **Add New Account** signs in from the panel: pick a provider,
+and for Copilot choose a personal seat or organization billing. A browser sign-in has **Open Browser**
+and a code field; a device code is shown large with **Copy** and **Open**; an API key is a hidden
+field with a link to the key page. **Needs Attention** uses **Fix** to open the account. Right-click an
+account header for refresh, copy, the provider's links, sign-in again, and remove. Settings stores the
+Mac keys for quota alerts, how many limits the bar shows, used or left, and countdown or exact reset
+times. Clicking an amount or a reset on the dashboard flips the same two settings.
+
 ## Add an account
+
+From the panel, **Accounts → Add New Account**. Or from a terminal:
 
 ```sh
 openusage add claude
 openusage add copilot --org my-org
 ```
 
-Sign-in runs in the terminal. A browser sign-in prints the link and opens it with `xdg-open`. A
-device-code sign-in prints the code to enter. An API-key sign-in reads the key from stdin with echo
-off in a terminal. The provider ids match the Mac app: `claude`, `codex`, `cursor`, `antigravity`,
-`copilot`, `devin`, `grok`, `ollama`, `opencode`, `openrouter`, `zai`. What each sign-in grants is in
-[Providers](providers.md).
+A terminal sign-in prints the link and opens it with `xdg-open`. A device-code sign-in prints the code
+to enter. An API-key sign-in reads the key from stdin with echo off in a terminal. The provider ids
+match the Mac app: `claude`, `codex`, `cursor`, `antigravity`, `copilot`, `devin`, `grok`, `ollama`,
+`opencode`, `openrouter`, `zai`. What each sign-in grants is in [Providers](providers.md).
 
 `--org <name>` adds a Copilot organization's billing as its own account, signed in with an
 organization token.
+
+## CLIProxyAPI
+
+A CLIProxyAPI hub is not a provider. `openusage hub add <url>` asks for the hub's management key
+with echo off, checks it, and mirrors each supported login as an ordinary account. Claude, ChatGPT,
+Antigravity, Devin, and Grok logins are mirrored. The account's saved sign-in is the placeholder
+`$TOKEN$`; the hub's key is kept in the keyring under the hub's id. Usage reads go through the hub's
+management API, one at a time. A rejected key or an IP ban stops further calls to that hub until it
+is removed and added again.
+
+`openusage hub list` prints each hub's id, host, and address. `openusage hub remove <hub-id-or-host>`
+removes the hub, its key, and the accounts mirrored from it. `openusage accounts` shows a mirrored
+account with its hub host. The limits JSON `displayName` stays the account name, the same as on the
+Mac (`Claude · alice@example.com`).
+
+Hubs are stored under `cliproxyHubs.v1` in the settings property list, in the same JSON the Mac app
+writes, so a hub list from the Mac app reads here.
 
 ## Waybar
 
@@ -94,7 +122,10 @@ is `openusage`, for sign-in. Launch one with that title, for example
 | `openusage` | Limits JSON for every account. Same output and exit codes as the [Mac command](cli.md): 0 printed, 2 bad arguments or no such account, 4 nothing fetched yet. |
 | `openusage <provider>` | Limits JSON for that provider. |
 | `openusage <account-id>` | Limits JSON for one account. The id is the one in the JSON (`codex@1a2b3c4d`). |
-| `openusage accounts` | List accounts and their ids. |
+| `openusage accounts` | List accounts and their ids. A mirrored CLIProxyAPI account includes its hub host. |
+| `openusage hub list` | List connected CLIProxyAPI hubs. |
+| `openusage hub add <url>` | Connect a hub. The management key is read with echo off. |
+| `openusage hub remove <hub-id-or-host>` | Remove a hub, its key, and its mirrored accounts. |
 | `openusage add <provider> [--org <name>]` | Interactive sign-in. |
 | `openusage remove <account-id>` | Remove an account and its keyring item. |
 | `openusage rename <account-id> <name>` | Rename an account. |
@@ -180,8 +211,11 @@ A line looks like `OpenUsage notice: [refresh] …`. Notices, warnings, and erro
 `OPENUSAGE_VERBOSE=1` adds info and debug lines. Credentials and response bodies are not logged.
 
 Some compositors leave layer surfaces out of screenshots. To capture the panel for a bug report, run
-`OPENUSAGE_DUMP=/tmp/panel.png openusage-panel`; it saves what it draws as a PNG shortly after opening
-(`OPENUSAGE_TAB=all` or `priority` picks the tab).
+`OPENUSAGE_DUMP=/tmp/panel.png openusage-panel`. It saves what it draws as a PNG shortly after opening,
+then quits. `OPENUSAGE_TAB=all` or `priority` picks the tab, and `OPENUSAGE_COLOR_SCHEME=light` or
+`dark` forces the appearance. `OPENUSAGE_SCREEN` opens one screen for that capture: `accounts`,
+`detail`, `add`, `settings`, `copilot`, `browser`, `device`, `secret`, `hub`, `resets`, `breakdown`,
+or `menu`.
 
 A locked keyring makes `secret-tool` fail, and the account reports that OpenUsage could not use the
 keyring. Unlock it and run `openusage refresh`. This reads one item back, without printing it into

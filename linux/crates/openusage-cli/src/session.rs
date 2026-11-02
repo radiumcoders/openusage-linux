@@ -23,8 +23,7 @@ pub fn accounts() -> i32 {
     }
     let snapshots = SnapshotCache::open().load();
     for account in &accounts {
-        let label = if account.label.is_empty() { account.kind.display_name().to_string() } else { account.label.clone() };
-        let mut fields = vec![account.card_id(), account.kind.display_name().to_string(), label];
+        let mut fields = vec![account.card_id(), account.kind.display_name().to_string(), account.accounts_label()];
         if let Some(plan) = snapshots.get(&account.card_id()).and_then(|snapshot| snapshot.plan.clone()).filter(|plan| !plan.is_empty()) {
             fields.push(plan);
         }

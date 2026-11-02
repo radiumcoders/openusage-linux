@@ -21,9 +21,9 @@
 //! refresh skips that wait. A connection failure retries every interval and does not grow the wait.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{mpsc, Arc};
 #[cfg(test)]
 use std::sync::Mutex;
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -33,28 +33,37 @@ use serde::{Deserialize, Serialize};
 mod persist;
 use persist::StatusFile;
 
+use uuid::Uuid;
+
 use crate::account::Account;
+use crate::error::ProviderError;
 use crate::http::{HttpClient, UreqClient};
+use crate::hub::{self, HubGate};
 use crate::kind::ProviderKind;
 use crate::log;
 use crate::metric::{ProviderSnapshot, ProviderUsage};
 use crate::provider::{FetchContext, ProviderState};
 use crate::refresh::{
-    FAILURE_BACKOFF_BASE_SECONDS, FAILURE_BACKOFF_CAP_SECONDS, INTERVAL_SECONDS, PROVIDER_TIMEOUT_SECONDS,
+    FAILURE_BACKOFF_BASE_SECONDS, FAILURE_BACKOFF_CAP_SECONDS, INTERVAL_SECONDS,
+    PROVIDER_TIMEOUT_SECONDS, SECONDARY_READ_INTERVAL_SECONDS,
 };
 use crate::store::{Settings, SnapshotCache};
 use crate::vault::{SecretToolVault, Vault};
 use crate::widget::{compact_clock, compact_duration};
-use crate::error::ProviderError;
 
 /// How long a repeated failure waits. `failures` is the count after this failure (1 for the first).
 pub fn delay_seconds(failures: i64) -> f64 {
     let doublings = (failures - 1).clamp(0, 16) as f64;
-    ((FAILURE_BACKOFF_BASE_SECONDS as f64) * 2f64.powf(doublings)).min(FAILURE_BACKOFF_CAP_SECONDS as f64)
+    ((FAILURE_BACKOFF_BASE_SECONDS as f64) * 2f64.powf(doublings))
+        .min(FAILURE_BACKOFF_CAP_SECONDS as f64)
 }
 
 pub fn format_timestamp(date: DateTime<Utc>) -> String {
-    format!("{}.{:03}Z", date.format("%Y-%m-%dT%H:%M:%S"), date.timestamp_subsec_millis())
+    format!(
+        "{}.{:03}Z",
+        date.format("%Y-%m-%dT%H:%M:%S"),
+        date.timestamp_subsec_millis()
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -71,11 +80,16 @@ mod status_time {
     use super::*;
     use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        date: &DateTime<Utc>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&format_timestamp(*date))
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<DateTime<Utc>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<DateTime<Utc>, D::Error> {
         let text = String::deserialize(deserializer)?;
         DateTime::parse_from_rfc3339(&text)
             .map(|date| date.with_timezone(&Utc))
@@ -90,7 +104,12 @@ enum FailureKind {
 }
 
 impl AccountStatus {
-    fn after(kind: FailureKind, message: String, previous: Option<&AccountStatus>, now: DateTime<Utc>) -> Self {
+    fn after(
+        kind: FailureKind,
+        message: String,
+        previous: Option<&AccountStatus>,
+        now: DateTime<Utc>,
+    ) -> Self {
         let previous_failures = previous.map(|status| status.failures).unwrap_or(0);
         match kind {
             FailureKind::Unreachable => Self {
@@ -101,12 +120,22 @@ impl AccountStatus {
             },
             FailureKind::Refused => {
                 let failures = previous_failures + 1;
-                Self { failures, message, provider_asked: false, retry_at: add_seconds(now, delay_seconds(failures)) }
+                Self {
+                    failures,
+                    message,
+                    provider_asked: false,
+                    retry_at: add_seconds(now, delay_seconds(failures)),
+                }
             }
             FailureKind::RateLimited(retry_after) => {
                 let failures = previous_failures + 1;
                 let wait = retry_after.unwrap_or_else(|| delay_seconds(failures));
-                Self { failures, message, provider_asked: true, retry_at: add_seconds(now, wait) }
+                Self {
+                    failures,
+                    message,
+                    provider_asked: true,
+                    retry_at: add_seconds(now, wait),
+                }
             }
         }
     }
@@ -142,7 +171,12 @@ pub struct RefreshReport {
 /// The refresh error, rate-limit wait, or staleness hint for each account. This is the map
 /// `dashboard::accounts` takes. Accounts with nothing to say are absent.
 pub fn load_problems(now: DateTime<Utc>) -> BTreeMap<String, String> {
-    problem_map(&Settings::open().accounts(), &SnapshotCache::open().load(), &StatusFile::open().load(), now)
+    problem_map(
+        &Settings::open().accounts(),
+        &SnapshotCache::open().load(),
+        &StatusFile::open().load(),
+        now,
+    )
 }
 
 pub fn load_statuses() -> BTreeMap<String, AccountStatus> {
@@ -211,7 +245,9 @@ fn staleness_hint(
             }
         }
     }
-    status.filter(|status| status.provider_asked).map(|_| "Waiting to retry after a rate limit.".to_string())
+    status
+        .filter(|status| status.provider_asked)
+        .map(|_| "Waiting to retry after a rate limit.".to_string())
 }
 
 pub struct Engine {
@@ -220,6 +256,9 @@ pub struct Engine {
     status: StatusFile,
     http: Arc<dyn HttpClient>,
     vault: Arc<dyn Vault>,
+    gate: Arc<HubGate>,
+    /// When each hub's login list was last read. Hubs are re-read about once an hour.
+    hub_synced_at: HashMap<Uuid, DateTime<Utc>>,
     accounts: Vec<Account>,
     snapshots: BTreeMap<String, ProviderSnapshot>,
     statuses: BTreeMap<String, AccountStatus>,
@@ -235,6 +274,8 @@ impl Engine {
             status: StatusFile::open(),
             http: Arc::new(UreqClient::new()),
             vault: Arc::new(SecretToolVault::default()),
+            gate: Arc::new(HubGate::default()),
+            hub_synced_at: HashMap::new(),
             accounts: Vec::new(),
             snapshots: BTreeMap::new(),
             statuses: BTreeMap::new(),
@@ -266,8 +307,13 @@ impl Engine {
     pub fn reload(&mut self) {
         self.accounts = self.settings.accounts();
         self.snapshots = self.cache.load();
-        let ids: Vec<String> = self.accounts.iter().map(|account| account.card_id()).collect();
-        self.states.retain(|id, _| ids.iter().any(|keep| keep == id));
+        let ids: Vec<String> = self
+            .accounts
+            .iter()
+            .map(|account| account.card_id())
+            .collect();
+        self.states
+            .retain(|id, _| ids.iter().any(|keep| keep == id));
         self.status.retain(&ids);
         self.statuses = self.status.load();
     }
@@ -282,15 +328,23 @@ impl Engine {
 
     pub fn refresh_at(&mut self, force: bool, now: DateTime<Utc>) -> Vec<RefreshReport> {
         self.reload();
+        self.sync_hubs(now);
         let accounts = self.accounts.clone();
         let started = Instant::now();
-        log::notice("refresh", &format!("batch start ({} providers, force={force})", accounts.len()));
+        log::notice(
+            "refresh",
+            &format!("batch start ({} providers, force={force})", accounts.len()),
+        );
         let mut outcomes = vec![RefreshOutcome::Skipped; accounts.len()];
         let mut jobs = Vec::new();
         for (index, account) in accounts.iter().enumerate() {
             let id = account.card_id();
             if !force {
-                if self.snapshots.get(&id).is_some_and(|snapshot| is_fresh(snapshot, now)) {
+                if self
+                    .snapshots
+                    .get(&id)
+                    .is_some_and(|snapshot| is_fresh(snapshot, now))
+                {
                     log::debug("refresh", &format!("cache hit {id}"));
                     outcomes[index] = RefreshOutcome::CacheHit;
                     continue;
@@ -305,7 +359,11 @@ impl Engine {
                     continue;
                 }
             }
-            jobs.push(Job { index, account: account.clone(), state: self.states.get(&id).cloned().unwrap_or_default() });
+            jobs.push(Job {
+                index,
+                account: account.clone(),
+                state: self.states.get(&id).cloned().unwrap_or_default(),
+            });
         }
         if !jobs.is_empty() {
             self.fetch_jobs(jobs, force, now, &mut outcomes);
@@ -322,21 +380,45 @@ impl Engine {
                 count(RefreshOutcome::BackedOff)
             ),
         );
-        accounts.into_iter().zip(outcomes).map(|(account, outcome)| RefreshReport { account, outcome }).collect()
+        accounts
+            .into_iter()
+            .zip(outcomes)
+            .map(|(account, outcome)| RefreshReport { account, outcome })
+            .collect()
     }
 
-    fn fetch_jobs(&mut self, jobs: Vec<Job>, force: bool, now: DateTime<Utc>, outcomes: &mut [RefreshOutcome]) {
+    fn fetch_jobs(
+        &mut self,
+        jobs: Vec<Job>,
+        force: bool,
+        now: DateTime<Utc>,
+        outcomes: &mut [RefreshOutcome],
+    ) {
         let (tx, rx) = mpsc::channel();
         let mut pending = HashMap::new();
+        let hubs = hub::list(&self.settings);
         for job in jobs {
             pending.insert(job.account.card_id(), job.index);
             let tx = tx.clone();
-            let http = Arc::clone(&self.http);
+            let http = hub::http_for(
+                &job.account,
+                &hubs,
+                Arc::clone(&self.http),
+                Arc::clone(&self.vault),
+                Arc::clone(&self.gate),
+            );
             let vault = Arc::clone(&self.vault);
             thread::spawn(move || {
                 let started = Instant::now();
                 let mut state = job.state;
-                let result = provider_fetch(&job.account, &mut state, http.as_ref(), vault.as_ref(), now, force);
+                let result = provider_fetch(
+                    &job.account,
+                    &mut state,
+                    http.as_ref(),
+                    vault.as_ref(),
+                    now,
+                    force,
+                );
                 let _ = tx.send(FetchDone {
                     index: job.index,
                     id: job.account.card_id(),
@@ -374,7 +456,14 @@ impl Engine {
             format!("Refresh timed out after {}s", self.timeout.as_secs())
         };
         for (id, index) in pending {
-            self.fail(&id, FailureKind::Refused, message.clone(), now, outcomes, index);
+            self.fail(
+                &id,
+                FailureKind::Refused,
+                message.clone(),
+                now,
+                outcomes,
+                index,
+            );
         }
     }
 
@@ -382,7 +471,11 @@ impl Engine {
         if done.elapsed >= Duration::from_secs(10) {
             log::warn(
                 "refresh",
-                &format!("{} slow refresh ({}ms, threshold=10000ms)", done.id, done.elapsed.as_millis()),
+                &format!(
+                    "{} slow refresh ({}ms, threshold=10000ms)",
+                    done.id,
+                    done.elapsed.as_millis()
+                ),
             );
         }
         match done.result {
@@ -401,7 +494,10 @@ impl Engine {
                 self.status.remove(&done.id);
                 self.statuses.remove(&done.id);
                 self.states.insert(done.id.clone(), done.state);
-                log::info("refresh", &format!("{} ok ({}ms)", done.id, done.elapsed.as_millis()));
+                log::info(
+                    "refresh",
+                    &format!("{} ok ({}ms)", done.id, done.elapsed.as_millis()),
+                );
                 outcomes[done.index] = RefreshOutcome::Refreshed;
             }
             Err(error) => {
@@ -424,10 +520,36 @@ impl Engine {
         let previous = self.statuses.get(id).cloned();
         let status = AccountStatus::after(kind, message, previous.as_ref(), now);
         let wait = (status.retry_at - now).num_seconds().max(0);
-        log::warn("refresh", &format!("{id} failed: {} Next try in {wait}s.", status.message));
+        log::warn(
+            "refresh",
+            &format!("{id} failed: {} Next try in {wait}s.", status.message),
+        );
         self.status.upsert(id, &status);
         self.statuses.insert(id.to_string(), status);
         outcomes[index] = RefreshOutcome::Failed;
+    }
+
+    /// Re-reads connected hubs that are due, then reloads when mirroring added, removed, or relinked
+    /// an account. A hub read within the hour is left alone.
+    fn sync_hubs(&mut self, now: DateTime<Utc>) {
+        let before = fingerprint(&self.accounts);
+        hub::sync_due(
+            &self.settings,
+            self.http.as_ref(),
+            self.vault.as_ref(),
+            &self.gate,
+            &mut self.hub_synced_at,
+            now,
+            ChronoDuration::seconds(SECONDARY_READ_INTERVAL_SECONDS),
+        );
+        let accounts = self.settings.accounts();
+        if fingerprint(&accounts) == before {
+            return;
+        }
+        let ids: Vec<String> = accounts.iter().map(Account::card_id).collect();
+        self.cache.retain(&ids);
+        self.status.retain(&ids);
+        self.reload();
     }
 }
 
@@ -448,8 +570,10 @@ struct FetchDone {
 
 fn classify(error: &ProviderError) -> (FailureKind, String) {
     let kind = match error {
-        ProviderError::RateLimited { retry_after_seconds } => FailureKind::RateLimited(*retry_after_seconds),
-        ProviderError::ConnectionFailed => FailureKind::Unreachable,
+        ProviderError::RateLimited {
+            retry_after_seconds,
+        } => FailureKind::RateLimited(*retry_after_seconds),
+        ProviderError::ConnectionFailed | ProviderError::Unreachable(_) => FailureKind::Unreachable,
         _ => FailureKind::Refused,
     };
     (kind, error.to_string())
@@ -465,11 +589,20 @@ fn provider_fetch(
 ) -> Result<ProviderUsage, ProviderError> {
     #[cfg(test)]
     if let Some(hook) = TEST_HOOK.lock().unwrap().clone() {
-        return hook(account, state);
+        return hook(account, state).map_err(|error| hub::account_failure(account, error));
     }
     let provider = crate::providers::provider(account.kind);
-    let mut ctx = FetchContext { account, http, vault, state, now, force };
-    provider.fetch(&mut ctx)
+    let mut ctx = FetchContext {
+        account,
+        http,
+        vault,
+        state,
+        now,
+        force,
+    };
+    provider
+        .fetch(&mut ctx)
+        .map_err(|error| hub::account_failure(account, error))
 }
 
 fn fingerprint(accounts: &[Account]) -> String {
@@ -481,7 +614,11 @@ fn fingerprint(accounts: &[Account]) -> String {
                 account.id,
                 account.label,
                 account.organization.as_deref().unwrap_or(""),
-                account.hub.as_ref().map(ToString::to_string).unwrap_or_default()
+                account
+                    .hub
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default()
             )
         })
         .collect::<Vec<_>>()
@@ -489,8 +626,15 @@ fn fingerprint(accounts: &[Account]) -> String {
 }
 
 #[cfg(test)]
-static TEST_HOOK: Mutex<Option<Arc<dyn Fn(&Account, &mut ProviderState) -> Result<ProviderUsage, ProviderError> + Send + Sync>>> =
-    Mutex::new(None);
+static TEST_HOOK: Mutex<
+    Option<
+        Arc<
+            dyn Fn(&Account, &mut ProviderState) -> Result<ProviderUsage, ProviderError>
+                + Send
+                + Sync,
+        >,
+    >,
+> = Mutex::new(None);
 
 #[cfg(test)]
 mod tests;

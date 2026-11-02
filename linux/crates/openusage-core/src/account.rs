@@ -84,6 +84,7 @@ impl Account {
     }
 
     /// "ChatGPT · Work", or just the provider name when the label is the provider name.
+    /// A hub account uses this same name: the limits JSON `displayName` is the Mac app's `fullName`.
     pub fn full_name(&self) -> String {
         let name = self.kind.display_name();
         if self.label.is_empty() || self.label == name {
@@ -91,6 +92,24 @@ impl Account {
         } else {
             format!("{name} · {}", self.label)
         }
+    }
+
+    /// Label for `openusage accounts`. A mirrored account keeps its name and adds the hub host.
+    pub fn accounts_label(&self) -> String {
+        let label = if self.label.is_empty() { self.kind.display_name().to_string() } else { self.label.clone() };
+        match self.hub_host() {
+            Some(host) => format!("{label} ({host})"),
+            None => label,
+        }
+    }
+
+    /// The CLIProxyAPI link, when this account was mirrored from a hub and the stored JSON can be read.
+    pub fn hub_link(&self) -> Option<crate::hub::HubLink> {
+        self.hub.as_ref().and_then(crate::hub::HubLink::from_value)
+    }
+
+    pub fn hub_host(&self) -> Option<String> {
+        self.hub_link().map(|link| link.host())
     }
 }
 

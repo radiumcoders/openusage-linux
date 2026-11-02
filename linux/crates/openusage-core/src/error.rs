@@ -20,6 +20,9 @@ pub enum ProviderError {
     MissingCredential,
     /// The keyring itself failed.
     Vault(String),
+    /// A server between OpenUsage and the provider, such as a CLIProxyAPI hub, can't be reached.
+    /// The message is shown as is. Backoff treats it like a connection failure.
+    Unreachable(String),
 }
 
 impl ProviderError {
@@ -81,6 +84,7 @@ impl fmt::Display for ProviderError {
                 "This account's sign-in is missing from the keyring. Remove the account and add it again with `openusage add`.",
             ),
             Self::Vault(reason) => write!(f, "OpenUsage couldn't use the keyring for this account ({reason})."),
+            Self::Unreachable(message) => f.write_str(message),
         }
     }
 }
