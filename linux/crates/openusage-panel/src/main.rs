@@ -1,20 +1,27 @@
 mod accounts_page;
 mod add_page;
 mod breakdown;
+mod cards;
+mod dash;
+mod drag;
+mod edit;
 mod fixture;
 mod format;
 mod icons;
 mod launch;
 mod menu;
-mod nav;
 mod model;
+mod nav;
 mod position;
 mod priority;
 mod prompter;
+mod reorder;
 mod resets;
 mod rows;
 mod session;
 mod settings_page;
+mod share;
+mod shot;
 mod state;
 mod ui;
 mod view;
@@ -52,7 +59,11 @@ fn install_css() {
     let provider = gtk4::CssProvider::new();
     provider.load_from_string(include_str!("style.css"));
     if let Some(display) = gdk::Display::default() {
-        gtk4::style_context_add_provider_for_display(&display, &provider, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
     }
 }
 
@@ -74,7 +85,9 @@ fn system_prefers_dark() -> bool {
     use std::sync::OnceLock;
     static DARK: OnceLock<bool> = OnceLock::new();
     *DARK.get_or_init(|| {
-        let Some(settings) = gtk4::Settings::default() else { return false };
+        let Some(settings) = gtk4::Settings::default() else {
+            return false;
+        };
         match settings.gtk_interface_color_scheme() {
             gtk4::InterfaceColorScheme::Dark => return true,
             gtk4::InterfaceColorScheme::Light => return false,
@@ -85,6 +98,8 @@ fn system_prefers_dark() -> bool {
         if settings.is_gtk_application_prefer_dark_theme() {
             return true;
         }
-        settings.gtk_theme_name().is_some_and(|name| name.to_ascii_lowercase().contains("dark"))
+        settings
+            .gtk_theme_name()
+            .is_some_and(|name| name.to_ascii_lowercase().contains("dark"))
     })
 }

@@ -9,20 +9,20 @@ use openusage_core::kind::ProviderKind;
 use openusage_core::provider::LoginMethod;
 use openusage_core::store::Settings;
 
-use crate::add_page::{self, Hooks as AddHooks};
 use crate::accounts_page::{self, DetailHooks, ListHooks};
+use crate::add_page::{self, Hooks as AddHooks};
 use crate::model::{self, Model};
 use crate::prompter::{self, Drive};
 use crate::settings_page::{self, Hooks as SettingsHooks};
-use crate::state::{AddFlow, AddStep, ClaimPhase, ClaimUi, Screen};
+use crate::state::{AddFlow, AddStep, ClaimPhase, Screen};
 use crate::ui;
-use crate::view::{self, Actions, Chrome, Tab};
+use crate::view::{self, Tab};
 use crate::window::{self, Ctx};
 
 pub fn build(ctx: &Rc<Ctx>, model: &Model) -> view::Built {
     let notice = ctx.notice.borrow().clone();
     match *ctx.screen.borrow() {
-        Screen::Dashboard => dashboard(ctx, model, notice),
+        Screen::Dashboard => crate::dash::view(ctx, model, notice),
         Screen::Accounts => accounts(ctx, model, notice.as_deref()),
         Screen::Detail(id) => detail(ctx, model, id, notice.as_deref()),
         Screen::Add => add(ctx, model),
@@ -47,11 +47,18 @@ pub fn poll(ctx: &Rc<Ctx>) -> bool {
             window::reload_accounts();
         }
         Drive::Cancelled => crate::nav::back_from_signin(ctx),
-        Drive::Failed(message) => openusage_core::log::warn("panel", &format!("sign-in didn't finish: {message}")),
+        Drive::Failed(message) => {
+            openusage_core::log::warn("panel", &format!("sign-in didn't finish: {message}"))
+        }
     }
     if let Some(job) = ctx.claim_job.borrow().as_ref() {
         if job.done.load(Ordering::SeqCst) {
-            let message = job.message.lock().expect("claim").clone().unwrap_or_else(|| "Couldn't reset usage. Please try again.".into());
+            let message = job
+                .message
+                .lock()
+                .expect("claim")
+                .clone()
+                .unwrap_or_else(|| "Couldn't reset usage. Please try again.".into());
             ctx.claim.borrow_mut().phase = ClaimPhase::Done(message);
             *ctx.claim_job.borrow_mut() = None;
             model::signal_daemon();
@@ -105,77 +112,6 @@ pub fn show_dashboard(ctx: &Rc<Ctx>) {
     window::rebuild(ctx, true);
 }
 
-fn dashboard(ctx: &Rc<Ctx>, model: &Model, notice: Option<String>) -> view::Built {
-    let actions = Actions {
-        on_tab: {
-            let ctx = ctx.clone();
-            Rc::new(move |tab| {
-                if ctx.rebuilding.get() || ctx.tab.get() == tab {
-                    return;
-                }
-                ctx.tab.set(tab);
-                window::rebuild(&ctx, true);
-            })
-        },
-        on_toggle_meter: {
-            let ctx = ctx.clone();
-            Rc::new(move || {
-                model::toggle_display_mode();
-                window::rebuild(&ctx, false);
-            })
-        },
-        on_toggle_reset: {
-            let ctx = ctx.clone();
-            Rc::new(move || {
-                model::toggle_resets();
-                window::rebuild(&ctx, false);
-            })
-        },
-        on_refresh: {
-            let ctx = ctx.clone();
-            Rc::new(move || window::refresh_now(&ctx))
-        },
-        on_fix: {
-            let ctx = ctx.clone();
-            Rc::new(move |id| crate::nav::open_detail(&ctx, id))
-        },
-        on_add: {
-            let ctx = ctx.clone();
-            Rc::new(move || crate::nav::start_add(&ctx))
-        },
-        on_menu: {
-            let ctx = ctx.clone();
-            Rc::new(move |index, act| crate::nav::menu_act(&ctx, index, act))
-        },
-        on_claim: {
-            let ctx = ctx.clone();
-            Rc::new(move |id| {
-                ctx.claim.borrow_mut().account = Some(id);
-                ctx.claim.borrow_mut().phase = ClaimPhase::Confirm { detail: None, expiring: None };
-                window::rebuild(&ctx, false);
-            })
-        },
-        on_claim_reset: {
-            let ctx = ctx.clone();
-            Rc::new(move || crate::nav::run_claim(&ctx))
-        },
-        on_claim_cancel: {
-            let ctx = ctx.clone();
-            Rc::new(move || {
-                *ctx.claim.borrow_mut() = ClaimUi::default();
-                window::rebuild(&ctx, false);
-            })
-        },
-    };
-    let chrome = Chrome { preview: ctx.preview.get(), claim: claim_snapshot(ctx), banner: notice };
-    view::build(model, ctx.tab.get(), ctx.refreshing.get(), &actions, &chrome, ctx.max_height.get())
-}
-
-fn claim_snapshot(ctx: &Ctx) -> ClaimUi {
-    let claim = ctx.claim.borrow();
-    ClaimUi { account: claim.account, phase: claim.phase.clone() }
-}
-
 fn accounts(ctx: &Rc<Ctx>, model: &Model, notice: Option<&str>) -> view::Built {
     let mut hubs = openusage_core::hub::list(&Settings::open());
     if ctx.preview.get().hub {
@@ -216,6 +152,7 @@ fn accounts(ctx: &Rc<Ctx>, model: &Model, notice: Option<&str>) -> view::Built {
                 window::rebuild(&ctx, false);
             })
         },
+        on_move: crate::edit::hooks(ctx).move_account,
     };
     accounts_page::list(
         &model.accounts,
@@ -228,7 +165,11 @@ fn accounts(ctx: &Rc<Ctx>, model: &Model, notice: Option<&str>) -> view::Built {
 }
 
 fn detail(ctx: &Rc<Ctx>, model: &Model, id: Uuid, notice: Option<&str>) -> view::Built {
-    let Some(account) = model.accounts.iter().find(|account| account.account.id == id) else {
+    let Some(account) = model
+        .accounts
+        .iter()
+        .find(|account| account.account.id == id)
+    else {
         return accounts(ctx, model, notice);
     };
     let hooks = DetailHooks {
@@ -276,9 +217,23 @@ fn detail(ctx: &Rc<Ctx>, model: &Model, id: Uuid, notice: Option<&str>) -> view:
             let ctx = ctx.clone();
             Rc::new(move || crate::nav::start_replace(&ctx, id))
         },
+        on_metric_shown: crate::edit::hooks(ctx).set_shown,
+        on_metric_move: {
+            let card = account.account.card_id();
+            let move_metric = crate::edit::hooks(ctx).move_metric;
+            Rc::new(move |dragged, target| move_metric(card.clone(), dragged, target))
+        },
     };
     let renaming = *ctx.renaming.borrow() == Some(id);
-    accounts_page::detail(account, renaming, ctx.confirm_remove.get(), notice, &hooks, ctx.max_height.get())
+    accounts_page::detail(
+        account,
+        &model.layout,
+        renaming,
+        ctx.confirm_remove.get(),
+        notice,
+        &hooks,
+        ctx.max_height.get(),
+    )
 }
 
 fn add(ctx: &Rc<Ctx>, _model: &Model) -> view::Built {
@@ -306,7 +261,9 @@ fn add_hooks(ctx: &Rc<Ctx>) -> AddHooks {
         },
         on_personal: {
             let ctx = ctx.clone();
-            Rc::new(move || crate::nav::begin_signin(&ctx, ProviderKind::Copilot, LoginMethod::Default, None))
+            Rc::new(move || {
+                crate::nav::begin_signin(&ctx, ProviderKind::Copilot, LoginMethod::Default, None)
+            })
         },
         on_organization: {
             let ctx = ctx.clone();
@@ -323,7 +280,12 @@ fn add_hooks(ctx: &Rc<Ctx>) -> AddHooks {
                 if name.is_empty() {
                     return;
                 }
-                crate::nav::begin_signin(&ctx, ProviderKind::Copilot, LoginMethod::Organization(name), None);
+                crate::nav::begin_signin(
+                    &ctx,
+                    ProviderKind::Copilot,
+                    LoginMethod::Organization(name),
+                    None,
+                );
             })
         },
         on_hub: {
@@ -394,7 +356,11 @@ fn settings(ctx: &Rc<Ctx>) -> view::Built {
                 if ctx.rebuilding.get() {
                     return;
                 }
-                let mode = if used { openusage_core::widget::DisplayMode::Used } else { openusage_core::widget::DisplayMode::Remaining };
+                let mode = if used {
+                    openusage_core::widget::DisplayMode::Used
+                } else {
+                    openusage_core::widget::DisplayMode::Remaining
+                };
                 if model::display_mode(&Settings::open()) == mode {
                     return;
                 }
@@ -408,7 +374,8 @@ fn settings(ctx: &Rc<Ctx>) -> view::Built {
                 if ctx.rebuilding.get() {
                     return;
                 }
-                let current = Settings::open().string(model::RESET_KEY).as_deref() == Some("absolute");
+                let current =
+                    Settings::open().string(model::RESET_KEY).as_deref() == Some("absolute");
                 if current == absolute {
                     return;
                 }
@@ -423,11 +390,20 @@ fn settings(ctx: &Rc<Ctx>) -> view::Built {
                     return;
                 }
                 let raw = settings_page::raw_menu(index);
-                if Settings::open().string(openusage_core::store::MENU_BAR_LIMIT_KEY).as_deref() == Some(raw) {
+                if Settings::open()
+                    .string(openusage_core::store::MENU_BAR_LIMIT_KEY)
+                    .as_deref()
+                    == Some(raw)
+                {
                     return;
                 }
-                if let Err(error) = Settings::open().set_string(openusage_core::store::MENU_BAR_LIMIT_KEY, raw) {
-                    openusage_core::log::error("panel", &format!("could not save the menu bar setting: {error}"));
+                if let Err(error) =
+                    Settings::open().set_string(openusage_core::store::MENU_BAR_LIMIT_KEY, raw)
+                {
+                    openusage_core::log::error(
+                        "panel",
+                        &format!("could not save the menu bar setting: {error}"),
+                    );
                 }
                 window::rebuild(&ctx, false);
             })
@@ -443,7 +419,10 @@ fn settings(ctx: &Rc<Ctx>) -> view::Built {
                     return;
                 }
                 if let Err(error) = Settings::open().set_bool(key, on) {
-                    openusage_core::log::error("panel", &format!("could not save an alert setting: {error}"));
+                    openusage_core::log::error(
+                        "panel",
+                        &format!("could not save an alert setting: {error}"),
+                    );
                 }
                 window::rebuild(&ctx, false);
             })
@@ -451,4 +430,3 @@ fn settings(ctx: &Rc<Ctx>) -> view::Built {
     };
     settings_page::build(&snapshot, &hooks, ctx.max_height.get())
 }
-

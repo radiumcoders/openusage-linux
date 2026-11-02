@@ -45,7 +45,14 @@ pub(super) fn usage_request(access_token: &str, account_id: Option<&str>) -> Htt
 }
 
 pub(crate) fn reset_credits_request(access_token: &str, account_id: Option<&str>) -> HttpRequest {
-    timed(reset_credit_headers(HttpRequest::get(RESET_CREDITS_URL), access_token, account_id), 10)
+    timed(
+        reset_credit_headers(
+            HttpRequest::get(RESET_CREDITS_URL),
+            access_token,
+            account_id,
+        ),
+        10,
+    )
 }
 
 /// `POST .../rate-limit-reset-credits/consume`. Body keys are sorted.
@@ -57,10 +64,14 @@ pub(crate) fn consume_reset_credit(
 ) -> HttpRequest {
     let mut body = serde_json::Map::new();
     body.insert("credit_id".into(), Value::String(credit_id.to_string()));
-    body.insert("redeem_request_id".into(), Value::String(request_id.to_string()));
+    body.insert(
+        "redeem_request_id".into(),
+        Value::String(request_id.to_string()),
+    );
     timed(
         reset_credit_headers(
-            HttpRequest::post(format!("{RESET_CREDITS_URL}/consume")).json_body(&Value::Object(body)),
+            HttpRequest::post(format!("{RESET_CREDITS_URL}/consume"))
+                .json_body(&Value::Object(body)),
             access_token,
             account_id,
         ),
@@ -68,7 +79,11 @@ pub(crate) fn consume_reset_credit(
     )
 }
 
-fn reset_credit_headers(request: HttpRequest, access_token: &str, account_id: Option<&str>) -> HttpRequest {
+fn reset_credit_headers(
+    request: HttpRequest,
+    access_token: &str,
+    account_id: Option<&str>,
+) -> HttpRequest {
     usage_headers(request, access_token, account_id)
         .header("OpenAI-Beta", "codex-1")
         .header("originator", "Codex Desktop")

@@ -1,13 +1,18 @@
 //! Accounts list and one account's page.
 
 use std::rc::Rc;
+use std::time::Duration;
 
+use gtk4::glib;
 use gtk4::prelude::*;
 use uuid::Uuid;
 
 use openusage_core::dashboard::DashboardAccount;
+use openusage_core::descriptor::Descriptor;
 use openusage_core::hub::Hub;
+use openusage_core::layout::LayoutState;
 
+use crate::drag::{self, Kind, Target};
 use crate::icons;
 use crate::ui;
 use crate::view::Built;
@@ -19,6 +24,7 @@ pub struct ListHooks {
     pub on_disconnect: Rc<dyn Fn(Uuid)>,
     pub on_confirm_hub: Rc<dyn Fn()>,
     pub on_cancel_hub: Rc<dyn Fn()>,
+    pub on_move: Rc<dyn Fn(String, String)>,
 }
 
 pub fn list(
@@ -43,9 +49,23 @@ pub fn list(
         body.append(&empty);
     } else if !accounts.is_empty() {
         let card = ui::card();
+        let mut targets = Vec::new();
         for account in accounts {
-            card.append(&account_row(account, &hooks.on_open));
+            let row = account_row(account, &hooks.on_open);
+            targets.push(Target {
+                kind: Kind::Account,
+                scope: "accounts".into(),
+                id: account.account.card_id(),
+                widget: row.clone().upcast(),
+            });
+            card.append(&row);
         }
+        let on_move = hooks.on_move.clone();
+        drag::bind_rows(
+            &card,
+            targets,
+            Rc::new(move |_, _, dragged, target| on_move(dragged, target)),
+        );
         body.append(&card);
     }
     for hub in hubs {
@@ -60,19 +80,39 @@ pub fn list(
     let add = ui::button("Add New Account", "primary", hooks.on_add.clone());
     add.set_hexpand(true);
     footer.append(&add);
-    ui::page(&ui::nav_title("Accounts"), &hooks.on_back, &body, Some(footer.upcast_ref()), max_height)
+    ui::page(
+        &ui::nav_title("Accounts"),
+        &hooks.on_back,
+        &body,
+        Some(footer.upcast_ref()),
+        max_height,
+    )
 }
 
-fn account_row(account: &DashboardAccount, on_open: &Rc<dyn Fn(Uuid)>) -> gtk4::Button {
+fn account_row(account: &DashboardAccount, on_open: &Rc<dyn Fn(Uuid)>) -> gtk4::Box {
+    let line = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    let grip = gtk4::Label::new(Some("⠿"));
+    grip.add_css_class("grip");
+    grip.add_css_class("tertiary");
+    drag::bind_source(&grip, Kind::Account, "accounts", &account.account.card_id());
+    line.append(&grip);
+    line.append(&account_button(account, on_open));
+    line
+}
+
+fn account_button(account: &DashboardAccount, on_open: &Rc<dyn Fn(Uuid)>) -> gtk4::Button {
     let id = account.account.id;
     let on_open = on_open.clone();
     let button = gtk4::Button::new();
     button.add_css_class("list-row");
+    button.set_hexpand(true);
     let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     row.append(&icons::image(account.account.kind, 18));
     let name = ui::text(account.account.kind.display_name(), &["title-quiet"]);
     row.append(&name);
-    if account.account.label != account.account.kind.display_name() && !account.account.label.is_empty() {
+    if account.account.label != account.account.kind.display_name()
+        && !account.account.label.is_empty()
+    {
         let label = ui::text(&account.account.label, &["secondary"]);
         label.set_ellipsize(pango::EllipsizeMode::Middle);
         label.set_hexpand(true);
@@ -109,7 +149,11 @@ fn hub_row(hub: &Hub, confirming: bool, hooks: &ListHooks) -> gtk4::Box {
     } else {
         let id = hub.id;
         let on_disconnect = hooks.on_disconnect.clone();
-        let button = ui::row_button("Disconnect", "destructive", Rc::new(move || on_disconnect(id)));
+        let button = ui::row_button(
+            "Disconnect",
+            "destructive",
+            Rc::new(move || on_disconnect(id)),
+        );
         card.append(&button);
     }
     let wrap = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -123,16 +167,30 @@ fn confirm_hub(hub: &Hub, hooks: &ListHooks) -> gtk4::Box {
     box_.set_margin_start(12);
     box_.set_margin_end(12);
     box_.set_margin_bottom(12);
-    let title = ui::text(&format!("Disconnect the hub at {}?", hub.host), &["title-quiet"]);
+    let title = ui::text(
+        &format!("Disconnect the hub at {}?", hub.host),
+        &["title-quiet"],
+    );
     title.set_wrap(true);
     box_.append(&title);
-    let copy = ui::text("Its accounts are removed from OpenUsage. Nothing changes on the hub.", &["caption", "secondary"]);
+    let copy = ui::text(
+        "Its accounts are removed from OpenUsage. Nothing changes on the hub.",
+        &["caption", "secondary"],
+    );
     copy.set_wrap(true);
     box_.append(&copy);
     let actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     actions.set_homogeneous(true);
-    actions.append(&ui::button("Disconnect", "destructive-fill", hooks.on_confirm_hub.clone()));
-    actions.append(&ui::button("Cancel", "bordered", hooks.on_cancel_hub.clone()));
+    actions.append(&ui::button(
+        "Disconnect",
+        "destructive-fill",
+        hooks.on_confirm_hub.clone(),
+    ));
+    actions.append(&ui::button(
+        "Cancel",
+        "bordered",
+        hooks.on_cancel_hub.clone(),
+    ));
     box_.append(&actions);
     box_
 }
@@ -146,11 +204,26 @@ pub struct DetailHooks {
     pub on_confirm_remove: Rc<dyn Fn()>,
     pub on_cancel_remove: Rc<dyn Fn()>,
     pub on_sign_in: Rc<dyn Fn()>,
+    pub on_metric_shown: Rc<dyn Fn(String, bool)>,
+    pub on_metric_move: Rc<dyn Fn(String, String)>,
 }
 
-pub fn detail(account: &DashboardAccount, renaming: bool, confirming: bool, error: Option<&str>, hooks: &DetailHooks, max_height: i32) -> Built {
+pub fn detail(
+    account: &DashboardAccount,
+    layout: &LayoutState,
+    renaming: bool,
+    confirming: bool,
+    error: Option<&str>,
+    hooks: &DetailHooks,
+    max_height: i32,
+) -> Built {
     let title: gtk4::Widget = if renaming {
-        rename_entry(&account.account.label, &hooks.on_commit_rename, &hooks.on_cancel_rename).upcast()
+        rename_entry(
+            &account.account.label,
+            &hooks.on_commit_rename,
+            &hooks.on_cancel_rename,
+        )
+        .upcast()
     } else {
         let name = account.account.label.clone();
         let on_start = hooks.on_start_rename.clone();
@@ -164,27 +237,45 @@ pub fn detail(account: &DashboardAccount, renaming: bool, confirming: bool, erro
         banner.add_css_class("problem-banner");
         body.append(&banner);
     }
+    if let Some(card) = metrics(account, layout, hooks) {
+        body.append(&card);
+    }
     body.append(&facts(account));
     let links = account.account.kind.links();
     if !links.is_empty() {
         let card = ui::card();
         for link in links {
             let url = link.url.to_string();
-            card.append(&ui::row_button(link.label, "row-btn", Rc::new(move || ui::open_uri(&url))));
+            card.append(&ui::row_button(
+                link.label,
+                "row-btn",
+                Rc::new(move || ui::open_uri(&url)),
+            ));
         }
         body.append(&card);
     }
     if account.account.hub.is_some() {
         body.append(&ui::text("Managed by CLIProxyAPI", &["secondary"]));
     } else {
-        let needs_fix = account.problem.as_deref().is_some_and(|text| !text.starts_with("Last updated"));
+        let needs_fix = account
+            .problem
+            .as_deref()
+            .is_some_and(|text| !text.starts_with("Last updated"));
         if needs_fix {
-            body.append(&ui::row_button("Sign In Again", "link-row", hooks.on_sign_in.clone()));
+            body.append(&ui::row_button(
+                "Sign In Again",
+                "link-row",
+                hooks.on_sign_in.clone(),
+            ));
         }
         if confirming {
             body.append(&confirm_remove(account, hooks));
         } else {
-            body.append(&ui::row_button("Remove Account…", "destructive", hooks.on_remove.clone()));
+            body.append(&ui::row_button(
+                "Remove Account…",
+                "destructive",
+                hooks.on_remove.clone(),
+            ));
         }
         if let Some(error) = error {
             let label = ui::text(error, &["problem"]);
@@ -193,6 +284,75 @@ pub fn detail(account: &DashboardAccount, renaming: bool, confirming: bool, erro
         }
     }
     ui::page(&title, &hooks.on_back, &body, None, max_height)
+}
+
+fn metrics(
+    account: &DashboardAccount,
+    layout: &LayoutState,
+    hooks: &DetailHooks,
+) -> Option<gtk4::Box> {
+    let descriptors = layout.ordered_descriptors(&account.account);
+    if descriptors.is_empty() {
+        return None;
+    }
+    let card = ui::card();
+    let mut targets = Vec::new();
+    for descriptor in &descriptors {
+        let row = metric_row(
+            descriptor,
+            !layout.is_hidden(&descriptor.id),
+            &hooks.on_metric_shown,
+        );
+        targets.push(Target {
+            kind: Kind::Metric,
+            scope: descriptor.provider_id.clone(),
+            id: descriptor.id.clone(),
+            widget: row.clone().upcast(),
+        });
+        card.append(&row);
+    }
+    let on_move = hooks.on_metric_move.clone();
+    drag::bind_rows(
+        &card,
+        targets,
+        Rc::new(move |_, _, dragged, target| on_move(dragged, target)),
+    );
+    Some(card)
+}
+
+fn metric_row(
+    descriptor: &Descriptor,
+    shown: bool,
+    on_shown: &Rc<dyn Fn(String, bool)>,
+) -> gtk4::Box {
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row.add_css_class("metric-row");
+    let grip = gtk4::Label::new(Some("⠿"));
+    grip.add_css_class("grip");
+    grip.add_css_class("tertiary");
+    drag::bind_source(&grip, Kind::Metric, &descriptor.provider_id, &descriptor.id);
+    row.append(&grip);
+    let title = ui::text(descriptor.title, &["title-quiet"]);
+    title.set_hexpand(true);
+    title.set_ellipsize(pango::EllipsizeMode::End);
+    row.append(&title);
+    let switch = gtk4::Switch::new();
+    switch.add_css_class("metric");
+    switch.set_active(shown);
+    switch.set_valign(gtk4::Align::Center);
+    let id = descriptor.id.clone();
+    let on_shown = on_shown.clone();
+    switch.connect_state_set(move |_, state| {
+        let on_shown = on_shown.clone();
+        let id = id.clone();
+        glib::timeout_add_local(Duration::from_millis(1), move || {
+            on_shown(id.clone(), state);
+            glib::ControlFlow::Break
+        });
+        glib::Propagation::Proceed
+    });
+    row.append(&switch);
+    row
 }
 
 fn facts(account: &DashboardAccount) -> gtk4::Box {
@@ -228,7 +388,10 @@ fn confirm_remove(account: &DashboardAccount, hooks: &DetailHooks) -> gtk4::Box 
     let box_ = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
     box_.add_css_class("card");
     box_.add_css_class("confirm");
-    let title = ui::text(&format!("Remove {}?", account.account.full_name()), &["title-quiet"]);
+    let title = ui::text(
+        &format!("Remove {}?", account.account.full_name()),
+        &["title-quiet"],
+    );
     title.set_wrap(true);
     box_.append(&title);
     let copy = ui::text(
@@ -239,13 +402,25 @@ fn confirm_remove(account: &DashboardAccount, hooks: &DetailHooks) -> gtk4::Box 
     box_.append(&copy);
     let actions = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     actions.set_homogeneous(true);
-    actions.append(&ui::button("Remove Account", "destructive-fill", hooks.on_confirm_remove.clone()));
-    actions.append(&ui::button("Cancel", "bordered", hooks.on_cancel_remove.clone()));
+    actions.append(&ui::button(
+        "Remove Account",
+        "destructive-fill",
+        hooks.on_confirm_remove.clone(),
+    ));
+    actions.append(&ui::button(
+        "Cancel",
+        "bordered",
+        hooks.on_cancel_remove.clone(),
+    ));
     box_.append(&actions);
     box_
 }
 
-fn rename_entry(name: &str, on_commit: &Rc<dyn Fn(String)>, on_cancel: &Rc<dyn Fn()>) -> gtk4::Entry {
+fn rename_entry(
+    name: &str,
+    on_commit: &Rc<dyn Fn(String)>,
+    on_cancel: &Rc<dyn Fn()>,
+) -> gtk4::Entry {
     let entry = ui::entry("Name", false, name);
     entry.set_halign(gtk4::Align::Center);
     entry.set_width_chars(18);

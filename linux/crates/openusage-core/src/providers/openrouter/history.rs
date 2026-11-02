@@ -159,7 +159,9 @@ fn read_activity(
             (
                 day,
                 ReadDay {
-                    measures: activity.map(|day| day.totals.clone()).unwrap_or_else(mapper::quiet),
+                    measures: activity
+                        .map(|day| day.totals.clone())
+                        .unwrap_or_else(mapper::quiet),
                     models: activity.map(stored_models).unwrap_or_default(),
                 },
             )
@@ -189,18 +191,34 @@ fn spend_lines(
 ) -> (Vec<MetricLine>, BTreeMap<String, UsageBreakdown>) {
     let today = mapper::midnight(now).timestamp();
     let windows = [
-        ("Today", "today", merge(window(ledger, today, 0, 0), Some(spend.today.spend)), model_window(ledger, today, 0, 0)),
-        ("Yesterday", "yesterday", merge(window(ledger, today, 1, 1), None), model_days(ledger, (1..=1).map(|offset| today - offset * DAY))),
+        (
+            "Today",
+            "today",
+            merge(window(ledger, today, 0, 0), Some(spend.today.spend)),
+            model_window(ledger, today, 0, 0),
+        ),
+        (
+            "Yesterday",
+            "yesterday",
+            merge(window(ledger, today, 1, 1), None),
+            model_days(ledger, (1..=1).map(|offset| today - offset * DAY)),
+        ),
         (
             "This Week",
             "week",
-            merge(interval(ledger, mapper::reset_window("weekly", now)), Some(spend.week.spend)),
+            merge(
+                interval(ledger, mapper::reset_window("weekly", now)),
+                Some(spend.week.spend),
+            ),
             model_interval(ledger, mapper::reset_window("weekly", now)),
         ),
         (
             "This Month",
             "month",
-            merge(interval(ledger, mapper::reset_window("monthly", now)), Some(spend.month.spend)),
+            merge(
+                interval(ledger, mapper::reset_window("monthly", now)),
+                Some(spend.month.spend),
+            ),
             model_interval(ledger, mapper::reset_window("monthly", now)),
         ),
         (
@@ -213,8 +231,13 @@ fn spend_lines(
     let mut lines = Vec::new();
     let mut breakdowns = BTreeMap::new();
     for (label, key, totals, models) in windows {
-        let Some(number) = totals.and_then(|totals| totals.get("spend").copied()) else { continue };
-        lines.push(MetricLine::values(label, vec![MetricValue::new(number, MetricKind::Dollars)]));
+        let Some(number) = totals.and_then(|totals| totals.get("spend").copied()) else {
+            continue;
+        };
+        lines.push(MetricLine::values(
+            label,
+            vec![MetricValue::new(number, MetricKind::Dollars)],
+        ));
         if let Some(breakdown) = UsageBreakdown::ranked(models) {
             breakdowns.insert(key.to_string(), breakdown);
         }
@@ -226,8 +249,13 @@ fn model_window(ledger: Option<&Ledger>, today: i64, first: i64, last: i64) -> V
     model_days(ledger, (first..=last).map(|offset| today - offset * DAY))
 }
 
-fn model_interval(ledger: Option<&Ledger>, bounds: Option<(DateTime<Utc>, i64)>) -> Vec<BreakdownModel> {
-    let Some((end, period_ms)) = bounds else { return Vec::new() };
+fn model_interval(
+    ledger: Option<&Ledger>,
+    bounds: Option<(DateTime<Utc>, i64)>,
+) -> Vec<BreakdownModel> {
+    let Some((end, period_ms)) = bounds else {
+        return Vec::new();
+    };
     let start = end.timestamp() - period_ms / 1000;
     let mut day = start;
     let mut days = Vec::new();
@@ -239,10 +267,14 @@ fn model_interval(ledger: Option<&Ledger>, bounds: Option<(DateTime<Utc>, i64)>)
 }
 
 fn model_days(ledger: Option<&Ledger>, days: impl Iterator<Item = i64>) -> Vec<BreakdownModel> {
-    let Some(ledger) = ledger else { return Vec::new() };
+    let Some(ledger) = ledger else {
+        return Vec::new();
+    };
     let mut models: BTreeMap<String, (f64, f64)> = BTreeMap::new();
     for day in days {
-        let Some(stored) = ledger.days.iter().find(|stored| stored.day == day) else { continue };
+        let Some(stored) = ledger.days.iter().find(|stored| stored.day == day) else {
+            continue;
+        };
         for (name, model) in &stored.models {
             let slot = models.entry(name.clone()).or_insert((0.0, 0.0));
             slot.0 += model.spend;

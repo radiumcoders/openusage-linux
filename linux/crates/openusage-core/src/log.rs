@@ -11,7 +11,10 @@ fn verbose() -> bool {
 }
 
 fn emit(level: &str, tag: &str, message: &str) {
-    let _ = writeln!(std::io::stderr().lock(), "OpenUsage {level}: [{tag}] {message}");
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "OpenUsage {level}: [{tag}] {message}"
+    );
 }
 
 pub fn error(tag: &str, message: &str) {

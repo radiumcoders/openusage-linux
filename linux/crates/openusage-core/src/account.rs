@@ -24,25 +24,35 @@ pub mod swift_date {
             .unwrap_or_else(Utc::now)
     }
 
-    pub fn serialize<S: Serializer>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        date: &DateTime<Utc>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
         serializer.serialize_f64(to_seconds(date))
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<DateTime<Utc>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<DateTime<Utc>, D::Error> {
         Ok(from_seconds(f64::deserialize(deserializer)?))
     }
 
     pub mod option {
         use super::*;
 
-        pub fn serialize<S: Serializer>(date: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error> {
+        pub fn serialize<S: Serializer>(
+            date: &Option<DateTime<Utc>>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error> {
             match date {
                 Some(date) => serializer.serialize_some(&to_seconds(date)),
                 None => serializer.serialize_none(),
             }
         }
 
-        pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error> {
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<DateTime<Utc>>, D::Error> {
             Ok(Option::<f64>::deserialize(deserializer)?.map(from_seconds))
         }
     }
@@ -66,7 +76,14 @@ pub struct Account {
 
 impl Account {
     pub fn new(kind: ProviderKind, label: impl Into<String>, organization: Option<String>) -> Self {
-        Self { id: Uuid::new_v4(), kind, label: label.into(), organization, hub: None, added_at: Utc::now() }
+        Self {
+            id: Uuid::new_v4(),
+            kind,
+            label: label.into(),
+            organization,
+            hub: None,
+            added_at: Utc::now(),
+        }
     }
 
     /// `codex@1a2b3c4d`: the id the limits JSON, the CLI, and the layout use.
@@ -83,6 +100,29 @@ impl Account {
         }
     }
 
+    /// The caption on the account's own row. An empty label uses the provider's name.
+    pub fn account_name(&self) -> String {
+        if self.label.is_empty() {
+            self.kind.display_name().to_string()
+        } else {
+            self.label.clone()
+        }
+    }
+
+    pub fn is_named_by_email(&self) -> bool {
+        self.label.contains('@')
+    }
+
+    /// A copy with an email label cleared, so a shared image shows the provider name instead.
+    pub fn hiding_email(&self) -> Self {
+        if !self.is_named_by_email() {
+            return self.clone();
+        }
+        let mut copy = self.clone();
+        copy.label.clear();
+        copy
+    }
+
     /// "ChatGPT · Work", or just the provider name when the label is the provider name.
     /// A hub account uses this same name: the limits JSON `displayName` is the Mac app's `fullName`.
     pub fn full_name(&self) -> String {
@@ -96,7 +136,11 @@ impl Account {
 
     /// Label for `openusage accounts`. A mirrored account keeps its name and adds the hub host.
     pub fn accounts_label(&self) -> String {
-        let label = if self.label.is_empty() { self.kind.display_name().to_string() } else { self.label.clone() };
+        let label = if self.label.is_empty() {
+            self.kind.display_name().to_string()
+        } else {
+            self.label.clone()
+        };
         match self.hub_host() {
             Some(host) => format!("{label} ({host})"),
             None => label,
@@ -119,7 +163,11 @@ pub struct OAuthTokens {
     pub access_token: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
-    #[serde(default, with = "swift_date::option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        with = "swift_date::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub expires_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub extras: BTreeMap<String, String>,
@@ -130,12 +178,19 @@ impl OAuthTokens {
     pub const REFRESH_MARGIN_SECONDS: i64 = 5 * 60;
 
     pub fn new(access_token: impl Into<String>) -> Self {
-        Self { access_token: access_token.into(), refresh_token: None, expires_at: None, extras: BTreeMap::new() }
+        Self {
+            access_token: access_token.into(),
+            refresh_token: None,
+            expires_at: None,
+            extras: BTreeMap::new(),
+        }
     }
 
     pub fn needs_refresh(&self, now: DateTime<Utc>) -> bool {
         match (&self.refresh_token, self.expires_at) {
-            (Some(_), Some(expires_at)) => expires_at <= now + Duration::seconds(Self::REFRESH_MARGIN_SECONDS),
+            (Some(_), Some(expires_at)) => {
+                expires_at <= now + Duration::seconds(Self::REFRESH_MARGIN_SECONDS)
+            }
             _ => false,
         }
     }
@@ -165,7 +220,9 @@ enum CredentialRepr {
 impl Serialize for Credential {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            Credential::OAuth(tokens) => CredentialRepr::Oauth(Wrapped { value: tokens.clone() }),
+            Credential::OAuth(tokens) => CredentialRepr::Oauth(Wrapped {
+                value: tokens.clone(),
+            }),
             Credential::ApiKey(key) => CredentialRepr::ApiKey(Wrapped { value: key.clone() }),
         }
         .serialize(serializer)
@@ -196,13 +253,38 @@ mod tests {
 
         let key: Credential = serde_json::from_str(r#"{"apiKey":{"_0":"sk-1"}}"#).unwrap();
         assert_eq!(key, Credential::ApiKey("sk-1".into()));
-        assert_eq!(serde_json::to_string(&key).unwrap(), r#"{"apiKey":{"_0":"sk-1"}}"#);
+        assert_eq!(
+            serde_json::to_string(&key).unwrap(),
+            r#"{"apiKey":{"_0":"sk-1"}}"#
+        );
 
         let oauth: Credential = serde_json::from_str(
             r#"{"oauth":{"_0":{"accessToken":"a","refreshToken":"r","expiresAt":100,"extras":{}}}}"#,
         )
         .unwrap();
-        let Credential::OAuth(tokens) = oauth else { panic!("expected oauth") };
+        let Credential::OAuth(tokens) = oauth else {
+            panic!("expected oauth")
+        };
         assert_eq!(tokens.expires_at.unwrap().timestamp(), 978_307_300);
+    }
+
+    #[test]
+    fn each_caption_names_its_account_and_the_image_leaves_emails_out() {
+        fn codex(label: &str) -> Account {
+            Account::new(ProviderKind::Codex, label, None)
+        }
+        assert_eq!(codex("Sunstory").account_name(), "Sunstory");
+        let names =
+            ["Sunstory", "sam@hey.com", "Codex", ""].map(|label| codex(label).account_name());
+        assert_eq!(names, ["Sunstory", "sam@hey.com", "Codex", "ChatGPT"]);
+        assert_eq!(
+            codex("sam@hey.com").hiding_email().account_name(),
+            "ChatGPT"
+        );
+        assert_eq!(
+            [codex("Sunstory"), codex("sam@hey.com")]
+                .map(|account| account.hiding_email().account_name()),
+            ["Sunstory", "ChatGPT"]
+        );
     }
 }

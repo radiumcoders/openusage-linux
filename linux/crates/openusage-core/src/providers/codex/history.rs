@@ -77,7 +77,13 @@ pub(super) fn attach(
     breakdowns: &mut BTreeMap<String, UsageBreakdown>,
 ) {
     let mut counts: Ledger = ctx.state.get(COUNTS_KEY).unwrap_or_default();
-    refresh(ctx, access_token, account_id, &mut counts, ReportKind::Counts);
+    refresh(
+        ctx,
+        access_token,
+        account_id,
+        &mut counts,
+        ReportKind::Counts,
+    );
     ctx.state.set(COUNTS_KEY, &counts);
     let mut credits: Option<Ledger> = None;
     if let Some(kind) = credits_kind(raw_plan_type(usage_body).as_deref()) {
@@ -339,7 +345,11 @@ fn model_breakdowns(
     breakdowns
 }
 
-fn window_models(counts: &Ledger, credits: Option<&Ledger>, days: &[String]) -> Option<UsageBreakdown> {
+fn window_models(
+    counts: &Ledger,
+    credits: Option<&Ledger>,
+    days: &[String],
+) -> Option<UsageBreakdown> {
     let mut models: BTreeMap<String, ModelRecord> = BTreeMap::new();
     let mut turn_total = 0.0;
     let mut credit_total = 0.0;
@@ -355,9 +365,17 @@ fn window_models(counts: &Ledger, credits: Option<&Ledger>, days: &[String]) -> 
             }
         }
     }
-    let has_tokens = models.values().any(|model| model.tokens.is_some_and(|number| number > 0.0));
-    let has_credits = credit_total > 0.0 && models.values().any(|model| model.saw_credits && model.credits > 0.0);
-    let has_turns = turn_total > 0.0 && models.values().any(|model| model.saw_turns && model.turns > 0.0);
+    let has_tokens = models
+        .values()
+        .any(|model| model.tokens.is_some_and(|number| number > 0.0));
+    let has_credits = credit_total > 0.0
+        && models
+            .values()
+            .any(|model| model.saw_credits && model.credits > 0.0);
+    let has_turns = turn_total > 0.0
+        && models
+            .values()
+            .any(|model| model.saw_turns && model.turns > 0.0);
     let built = models
         .into_iter()
         .map(|(name, model)| {

@@ -26,7 +26,10 @@ pub struct SecretToolVault {
 
 impl Default for SecretToolVault {
     fn default() -> Self {
-        Self { executable: "secret-tool".into(), service: SERVICE.into() }
+        Self {
+            executable: "secret-tool".into(),
+            service: SERVICE.into(),
+        }
     }
 }
 
@@ -51,10 +54,14 @@ impl SecretToolVault {
             })?;
         if let Some(mut stdin) = child.stdin.take() {
             if let Some(input) = input {
-                stdin.write_all(input).map_err(|error| ProviderError::Vault(error.to_string()))?;
+                stdin
+                    .write_all(input)
+                    .map_err(|error| ProviderError::Vault(error.to_string()))?;
             }
         }
-        let output = child.wait_with_output().map_err(|error| ProviderError::Vault(error.to_string()))?;
+        let output = child
+            .wait_with_output()
+            .map_err(|error| ProviderError::Vault(error.to_string()))?;
         Ok(Output {
             status: output.status.code().unwrap_or(-1),
             stdout: output.stdout,
@@ -64,19 +71,31 @@ impl SecretToolVault {
 
     fn failure(output: &Output) -> ProviderError {
         let line = output.stderr.lines().next().unwrap_or("").to_string();
-        ProviderError::Vault(if line.is_empty() { format!("secret-tool exited {}", output.status) } else { line })
+        ProviderError::Vault(if line.is_empty() {
+            format!("secret-tool exited {}", output.status)
+        } else {
+            line
+        })
     }
 }
 
 impl Vault for SecretToolVault {
     fn load(&self, id: Uuid) -> Result<Option<Credential>, ProviderError> {
         let account = id.to_string().to_uppercase();
-        let output = self.run(&["lookup", "service", &self.service, "account", &account], None)?;
+        let output = self.run(
+            &["lookup", "service", &self.service, "account", &account],
+            None,
+        )?;
         match output.status {
             // An item with an empty secret holds no sign-in: report it missing, so the account asks to
             // sign in again instead of showing a keyring error.
             0 if output.stdout.iter().all(u8::is_ascii_whitespace) => {
-                crate::log::warn("auth:accounts", &format!("keyring item for {account} is empty; treating the sign-in as missing"));
+                crate::log::warn(
+                    "auth:accounts",
+                    &format!(
+                        "keyring item for {account} is empty; treating the sign-in as missing"
+                    ),
+                );
                 Ok(None)
             }
             0 => serde_json::from_slice(&output.stdout)
@@ -90,17 +109,39 @@ impl Vault for SecretToolVault {
 
     fn save(&self, id: Uuid, credential: &Credential) -> Result<(), ProviderError> {
         let account = id.to_string().to_uppercase();
-        let data = serde_json::to_vec(credential).map_err(|error| ProviderError::Vault(error.to_string()))?;
+        let data = serde_json::to_vec(credential)
+            .map_err(|error| ProviderError::Vault(error.to_string()))?;
         let label = format!("--label=OpenUsage account {account}");
-        let output = self.run(&["store", &label, "service", &self.service, "account", &account], Some(&data))?;
-        if output.status == 0 { Ok(()) } else { Err(Self::failure(&output)) }
+        let output = self.run(
+            &[
+                "store",
+                &label,
+                "service",
+                &self.service,
+                "account",
+                &account,
+            ],
+            Some(&data),
+        )?;
+        if output.status == 0 {
+            Ok(())
+        } else {
+            Err(Self::failure(&output))
+        }
     }
 
     fn delete(&self, id: Uuid) -> Result<(), ProviderError> {
         let account = id.to_string().to_uppercase();
-        let output = self.run(&["clear", "service", &self.service, "account", &account], None)?;
+        let output = self.run(
+            &["clear", "service", &self.service, "account", &account],
+            None,
+        )?;
         // `clear` exits 1 when nothing matched, which leaves the account as deleted as asked.
-        if output.status == 0 || (output.status == 1 && output.stderr.is_empty()) { Ok(()) } else { Err(Self::failure(&output)) }
+        if output.status == 0 || (output.status == 1 && output.stderr.is_empty()) {
+            Ok(())
+        } else {
+            Err(Self::failure(&output))
+        }
     }
 }
 
@@ -113,11 +154,16 @@ mod tests {
     /// Runs against the real Secret Service under a throwaway service name; skipped without a keyring.
     #[test]
     fn round_trips_a_large_oauth_credential_through_secret_tool() {
-        let vault = SecretToolVault { service: format!("com.robinebers.openusage.test.{}", Uuid::new_v4()), ..Default::default() };
+        let vault = SecretToolVault {
+            service: format!("com.robinebers.openusage.test.{}", Uuid::new_v4()),
+            ..Default::default()
+        };
         let id = Uuid::new_v4();
         let mut tokens = OAuthTokens::new("a".repeat(1800));
         tokens.refresh_token = Some("r".repeat(400));
-        tokens.extras.insert(OAuthTokens::IDENTITY_KEY.into(), "acct:org".into());
+        tokens
+            .extras
+            .insert(OAuthTokens::IDENTITY_KEY.into(), "acct:org".into());
         let credential = Credential::OAuth(tokens);
         if vault.save(id, &credential).is_err() {
             eprintln!("no usable keyring here; skipping");

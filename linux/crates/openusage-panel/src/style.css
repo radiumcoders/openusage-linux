@@ -341,3 +341,50 @@ window.openusage.force-dark entry,
 window.openusage.force-dark .code-well { background: #3a3a3c; color: #f5f5f7; border-color: rgba(255, 255, 255, 0.08); }
 window.openusage.force-dark popover.menu-pop contents,
 window.openusage.force-dark popover.breakdown contents { background: #2c2c2e; }
+
+window.openusage .drop-before {
+  box-shadow: inset 0 3px 0 #007aff;
+  background: rgba(0, 122, 255, 0.08);
+}
+window.openusage .drop-after {
+  box-shadow: inset 0 -3px 0 #007aff;
+  background: rgba(0, 122, 255, 0.08);
+}
+window.openusage .grip { padding: 0 4px 0 10px; font-size: 16px; }
+window.openusage .metric-row { padding: 8px 12px; }
+window.openusage .copied-pill {
+  background: rgba(255, 255, 255, 0.94);
+  color: #1d1d1f;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 650;
+}
+/* The share image's root: it is not inside .panel, so it carries the panel's text color itself. */
+window.openusage .share-sheet { background: #f4f4f5; color: #1d1d1f; padding: 16px; min-width: 360px; }
+@media (prefers-color-scheme: dark) {
+  window.openusage:not(.force-light) .share-sheet { background: #1c1c1e; color: #f5f5f7; }
+}
+window.openusage button.copy-corner {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 3px 8px;
+  margin: 6px;
+  font-size: 11px;
+  font-weight: 650;
+  color: #1d1d1f;
+}
+window.openusage button.logo-share { padding: 0; min-width: 16px; min-height: 16px; }
+window.openusage.force-dark .copied-pill {
+  background: rgba(44, 44, 46, 0.94);
+  color: #f5f5f7;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+window.openusage.force-dark .share-sheet { background: #1c1c1e; color: #f5f5f7; }
+window.openusage.force-dark button.copy-corner {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f5f5f7;
+}
+window.openusage.force-dark .drop-before { box-shadow: inset 0 3px 0 #0a84ff; }
+window.openusage.force-dark .drop-after { box-shadow: inset 0 -3px 0 #0a84ff; }

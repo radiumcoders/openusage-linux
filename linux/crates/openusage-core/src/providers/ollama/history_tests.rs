@@ -71,8 +71,7 @@ fn days_parse_buckets_and_any_malformed_bucket_rejects_the_read() {
         format!(r#"{{{day},"request_count":1}},{{{day},"request_count":1}}"#),
     ] {
         assert!(
-            days(format!(r#"{{"granularity":"day","buckets":[{bucket}]}}"#).as_bytes())
-                .is_none(),
+            days(format!(r#"{{"granularity":"day","buckets":[{bucket}]}}"#).as_bytes()).is_none(),
             "{bucket}"
         );
     }

@@ -89,6 +89,7 @@ fn provider_entry(
     generated_at: DateTime<Utc>,
 ) -> Map<String, Value> {
     let mut resources = Map::new();
+    // Hidden metrics stay. `UsageReader` encodes every descriptor, not the layout's visible set.
     for descriptor in descriptors(account) {
         let Some(export) = &descriptor.export else {
             continue;
@@ -372,5 +373,43 @@ mod tests {
         assert_eq!(total["used"], 37);
         assert_eq!(total["limit"], 750);
         assert!(total.get("resetsAt").is_none());
+    }
+
+    #[test]
+    fn a_metric_the_dashboard_hides_stays_in_the_envelope() {
+        use openusage_core::layout::LayoutState;
+
+        let account = Account::new(ProviderKind::Claude, "Work", None);
+        let mut layout = LayoutState::default();
+        let weekly = format!("{}.weekly", account.card_id());
+        assert!(layout.set_hidden(&weekly, true));
+        let generated = stamp("2026-07-13T01:40:00.000Z");
+        let snapshot = ProviderSnapshot {
+            breakdowns: Default::default(),
+            provider_id: account.card_id(),
+            display_name: "Claude".into(),
+            plan: None,
+            lines: vec![
+                MetricLine::percent("Session", 10.0, None, None),
+                MetricLine::percent("Weekly", 90.0, None, None),
+            ],
+            notice: None,
+            refreshed_at: stamp("2026-07-13T01:39:30.000Z"),
+        };
+        let mut snapshots = BTreeMap::new();
+        snapshots.insert(account.card_id(), snapshot);
+        let value: Value =
+            serde_json::from_str(&encode(&[account], &snapshots, generated)).unwrap();
+        let resources = &value["providers"]
+            .as_object()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()["resources"];
+        assert!(
+            resources.get("weekly").is_some(),
+            "hiding is not applied to the limits JSON"
+        );
+        assert!(resources.get("session").is_some());
     }
 }

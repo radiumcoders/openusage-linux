@@ -8,6 +8,7 @@ use chrono::Utc;
 use openusage_core::account::Account;
 use openusage_core::daemon;
 use openusage_core::engine::{self, Engine, RefreshOutcome};
+use openusage_core::layout;
 use openusage_core::store::{Settings, SnapshotCache};
 use openusage_core::vault::{SecretToolVault, Vault};
 
@@ -16,15 +17,25 @@ use crate::notify;
 use crate::text;
 
 pub fn accounts() -> i32 {
-    let accounts = Settings::open().accounts();
+    let settings = Settings::open();
+    let stored = settings.accounts();
+    let accounts = layout::load_for(&settings, &stored).ordered_accounts(&stored);
     if accounts.is_empty() {
         text::line("No accounts.");
         return 0;
     }
     let snapshots = SnapshotCache::open().load();
     for account in &accounts {
-        let mut fields = vec![account.card_id(), account.kind.display_name().to_string(), account.accounts_label()];
-        if let Some(plan) = snapshots.get(&account.card_id()).and_then(|snapshot| snapshot.plan.clone()).filter(|plan| !plan.is_empty()) {
+        let mut fields = vec![
+            account.card_id(),
+            account.kind.display_name().to_string(),
+            account.accounts_label(),
+        ];
+        if let Some(plan) = snapshots
+            .get(&account.card_id())
+            .and_then(|snapshot| snapshot.plan.clone())
+            .filter(|plan| !plan.is_empty())
+        {
             fields.push(plan);
         }
         text::line(&fields.join("\t"));
@@ -43,7 +54,9 @@ pub fn remove(token: &str) -> i32 {
         text::error(&error.to_string());
         return 1;
     }
-    if let Err(error) = settings.update_accounts(|accounts| accounts.retain(|item| item.id != account.id)) {
+    if let Err(error) =
+        settings.update_accounts(|accounts| accounts.retain(|item| item.id != account.id))
+    {
         text::error(&error.to_string());
         return 1;
     }
@@ -102,13 +115,22 @@ pub fn refresh() -> i32 {
             RefreshOutcome::Refreshed => "updated".to_string(),
             RefreshOutcome::CacheHit => "cached".to_string(),
             RefreshOutcome::Skipped => "skipped".to_string(),
-            RefreshOutcome::Failed | RefreshOutcome::BackedOff => {
-                problems.get(&report.account.card_id()).cloned().unwrap_or_else(|| "failed".to_string())
-            }
+            RefreshOutcome::Failed | RefreshOutcome::BackedOff => problems
+                .get(&report.account.card_id())
+                .cloned()
+                .unwrap_or_else(|| "failed".to_string()),
         };
-        text::line(&format!("{} ({}): {detail}", report.account.card_id(), report.account.full_name()));
+        text::line(&format!(
+            "{} ({}): {detail}",
+            report.account.card_id(),
+            report.account.full_name()
+        ));
     }
-    if failed { 1 } else { 0 }
+    if failed {
+        1
+    } else {
+        0
+    }
 }
 
 pub fn alerts(change: Option<AlertChange>) -> i32 {

@@ -21,7 +21,9 @@ pub fn view(chrome: &ClaimChrome) -> gtk4::Widget {
             button.set_halign(gtk4::Align::End);
             button.upcast()
         }
-        ClaimPhase::Confirm { detail, .. } => confirm(detail.as_deref(), &chrome.on_reset, &chrome.on_cancel).upcast(),
+        ClaimPhase::Confirm { detail, .. } => {
+            confirm(detail.as_deref(), &chrome.on_reset, &chrome.on_cancel).upcast()
+        }
         ClaimPhase::Working => {
             let label = ui::text("Resetting your usage…", &["caption", "secondary"]);
             label.set_margin_top(4);

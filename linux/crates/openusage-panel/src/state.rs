@@ -85,7 +85,10 @@ pub struct Signin {
 #[derive(Clone)]
 pub enum ClaimPhase {
     Idle,
-    Confirm { detail: Option<String>, expiring: Option<DateTime<Utc>> },
+    Confirm {
+        detail: Option<String>,
+        expiring: Option<DateTime<Utc>>,
+    },
     Working,
     Done(String),
 }
@@ -103,7 +106,10 @@ pub struct ClaimUi {
 
 impl Default for ClaimUi {
     fn default() -> Self {
-        Self { account: None, phase: ClaimPhase::Idle }
+        Self {
+            account: None,
+            phase: ClaimPhase::Idle,
+        }
     }
 }
 

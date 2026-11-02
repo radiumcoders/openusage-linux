@@ -14,14 +14,21 @@ pub fn apply(ctx: &Rc<Ctx>, model: &Model) {
     if ctx.launch_applied.replace(true) {
         return;
     }
-    let Ok(screen) = std::env::var("OPENUSAGE_SCREEN") else { return };
+    let Ok(screen) = std::env::var("OPENUSAGE_SCREEN") else {
+        return;
+    };
     match screen.as_str() {
         "accounts" => *ctx.screen.borrow_mut() = Screen::Accounts,
         "detail" => {
             let account = model
                 .accounts
                 .iter()
-                .find(|account| account.problem.as_deref().is_some_and(|text| !text.starts_with("Last updated")))
+                .find(|account| {
+                    account
+                        .problem
+                        .as_deref()
+                        .is_some_and(|text| !text.starts_with("Last updated"))
+                })
                 .or(model.accounts.first());
             if let Some(account) = account {
                 *ctx.screen.borrow_mut() = Screen::Detail(account.account.id);
@@ -38,12 +45,18 @@ pub fn apply(ctx: &Rc<Ctx>, model: &Model) {
         "browser" => preview_prompt(
             ctx,
             ProviderKind::Claude,
-            LoginPrompt::Browser { url: "https://claude.ai/oauth/authorize".into(), accepts_pasted_code: true },
+            LoginPrompt::Browser {
+                url: "https://claude.ai/oauth/authorize".into(),
+                accepts_pasted_code: true,
+            },
         ),
         "device" => preview_prompt(
             ctx,
             ProviderKind::Copilot,
-            LoginPrompt::DeviceCode { user_code: "ABCD-EFGH".into(), verification_url: "https://github.com/login/device".into() },
+            LoginPrompt::DeviceCode {
+                user_code: "ABCD-EFGH".into(),
+                verification_url: "https://github.com/login/device".into(),
+            },
         ),
         "secret" => preview_prompt(
             ctx,
@@ -69,11 +82,17 @@ pub fn apply(ctx: &Rc<Ctx>, model: &Model) {
             preview.claim = true;
             ctx.preview.set(preview);
             if let Some(account) = model.accounts.iter().find(|account| {
-                account.lines.iter().any(|line| line.descriptor.shows_reset_expiries() && line.data.has_data)
+                account
+                    .lines
+                    .iter()
+                    .any(|line| line.descriptor.shows_reset_expiries() && line.data.has_data)
             }) {
                 *ctx.claim.borrow_mut() = ClaimUi {
                     account: Some(account.account.id),
-                    phase: ClaimPhase::Confirm { detail: Some("Resets your weekly limit".into()), expiring: None },
+                    phase: ClaimPhase::Confirm {
+                        detail: Some("Resets your weekly limit".into()),
+                        expiring: None,
+                    },
                 };
             }
         }

@@ -191,7 +191,13 @@ impl World {
     fn client(&self, account: &Account) -> Arc<dyn HttpClient> {
         let vault: Arc<dyn Vault> = self.vault.clone();
         let http: Arc<dyn HttpClient> = self.http.clone();
-        http_for(account, &list(&self.settings), http, vault, self.gate.clone())
+        http_for(
+            account,
+            &list(&self.settings),
+            http,
+            vault,
+            self.gate.clone(),
+        )
     }
 }
 
@@ -1244,23 +1250,39 @@ impl World {
 fn an_edited_link_never_sends_the_management_key_elsewhere() {
     let world = World::new(routing(LISTING));
     world.connect("http://mini.local:8317", "mgmt-key").unwrap();
-    let mut account = world.settings.accounts().into_iter().find(|account| account.hub.is_some()).unwrap();
+    let mut account = world
+        .settings
+        .accounts()
+        .into_iter()
+        .find(|account| account.hub.is_some())
+        .unwrap();
 
     // A link pointing the connected hub's id at another address still goes to the stored hub.
     let mut link = account.hub_link().unwrap();
     link.hub_url = "http://evil.example:9999".into();
     account.hub = Some(link.to_value());
     let before = world.http.len();
-    let _ = world.client(&account).send(HttpRequest::get("https://api.anthropic.com/api/oauth/usage"));
+    let _ = world.client(&account).send(HttpRequest::get(
+        "https://api.anthropic.com/api/oauth/usage",
+    ));
     let sent = world.http.requests()[before..].to_vec();
     assert!(!sent.is_empty());
-    assert!(sent.iter().all(|request| request.url.starts_with("http://mini.local:8317/")), "{sent:?}");
+    assert!(
+        sent.iter()
+            .all(|request| request.url.starts_with("http://mini.local:8317/")),
+        "{sent:?}"
+    );
 
     // A link naming no connected hub sends nothing at all.
     let mut stray = account.hub_link().unwrap();
     stray.hub_id = Uuid::new_v4();
     account.hub = Some(stray.to_value());
     let before = world.http.len();
-    assert!(world.client(&account).send(HttpRequest::get("https://api.anthropic.com/api/oauth/usage")).is_err());
+    assert!(world
+        .client(&account)
+        .send(HttpRequest::get(
+            "https://api.anthropic.com/api/oauth/usage"
+        ))
+        .is_err());
     assert_eq!(world.http.len(), before);
 }

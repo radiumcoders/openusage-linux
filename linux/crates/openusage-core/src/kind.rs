@@ -63,7 +63,9 @@ impl ProviderKind {
     }
 
     pub fn from_raw(raw: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|kind| kind.raw() == raw.to_ascii_lowercase())
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.raw() == raw.to_ascii_lowercase())
     }
 
     pub fn display_name(self) -> &'static str {
@@ -85,12 +87,25 @@ impl ProviderKind {
     /// The first method is the account's default sign-in.
     pub fn auth_methods(self) -> Vec<AuthMethod> {
         match self {
-            Self::Claude | Self::Codex | Self::Cursor | Self::Antigravity | Self::Devin | Self::Grok => vec![AuthMethod::OAuth],
+            Self::Claude
+            | Self::Codex
+            | Self::Cursor
+            | Self::Antigravity
+            | Self::Devin
+            | Self::Grok => vec![AuthMethod::OAuth],
             Self::Copilot => vec![AuthMethod::OAuth, AuthMethod::OrganizationToken],
-            Self::Ollama => vec![AuthMethod::ApiKey { key_page: "https://ollama.com/settings/keys" }],
-            Self::OpenCode => vec![AuthMethod::ApiKey { key_page: "https://opencode.ai/console" }],
-            Self::OpenRouter => vec![AuthMethod::ApiKey { key_page: "https://openrouter.ai/settings/management-keys" }],
-            Self::Zai => vec![AuthMethod::ApiKey { key_page: "https://z.ai/manage-apikey/apikey-list" }],
+            Self::Ollama => vec![AuthMethod::ApiKey {
+                key_page: "https://ollama.com/settings/keys",
+            }],
+            Self::OpenCode => vec![AuthMethod::ApiKey {
+                key_page: "https://opencode.ai/console",
+            }],
+            Self::OpenRouter => vec![AuthMethod::ApiKey {
+                key_page: "https://openrouter.ai/settings/management-keys",
+            }],
+            Self::Zai => vec![AuthMethod::ApiKey {
+                key_page: "https://z.ai/manage-apikey/apikey-list",
+            }],
         }
     }
 
@@ -114,7 +129,10 @@ impl ProviderKind {
                 link("Status Page", "https://www.githubstatus.com/"),
                 link("Usage Dashboard", "https://github.com/settings/billing"),
             ],
-            Self::Devin => vec![link("Usage Dashboard", "https://app.devin.ai/settings/plans")],
+            Self::Devin => vec![link(
+                "Usage Dashboard",
+                "https://app.devin.ai/settings/plans",
+            )],
             Self::Grok => vec![link("Usage Dashboard", "https://grok.com/?_s=usage")],
             Self::Ollama => vec![
                 link("Usage Dashboard", "https://ollama.com/settings"),
@@ -130,7 +148,10 @@ impl ProviderKind {
                 link("Credits", "https://openrouter.ai/settings/credits"),
             ],
             Self::Zai => vec![
-                link("Usage Dashboard", "https://z.ai/manage-apikey/coding-plan/personal/my-plan"),
+                link(
+                    "Usage Dashboard",
+                    "https://z.ai/manage-apikey/coding-plan/personal/my-plan",
+                ),
                 link("API Keys", "https://z.ai/manage-apikey/apikey-list"),
             ],
         }

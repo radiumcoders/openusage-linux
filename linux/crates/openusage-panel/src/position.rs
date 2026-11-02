@@ -44,10 +44,30 @@ pub fn position_in(json: &str) -> Option<BarPosition> {
 pub fn corner_for(position: BarPosition, thickness: i32) -> Corner {
     let clearance = thickness.max(0) + GAP;
     match position {
-        BarPosition::Bottom => Corner { top: false, left: false, vertical_margin: clearance, horizontal_margin: GAP },
-        BarPosition::Top => Corner { top: true, left: false, vertical_margin: clearance, horizontal_margin: GAP },
-        BarPosition::Left => Corner { top: false, left: true, vertical_margin: GAP, horizontal_margin: clearance },
-        BarPosition::Right => Corner { top: false, left: false, vertical_margin: GAP, horizontal_margin: clearance },
+        BarPosition::Bottom => Corner {
+            top: false,
+            left: false,
+            vertical_margin: clearance,
+            horizontal_margin: GAP,
+        },
+        BarPosition::Top => Corner {
+            top: true,
+            left: false,
+            vertical_margin: clearance,
+            horizontal_margin: GAP,
+        },
+        BarPosition::Left => Corner {
+            top: false,
+            left: true,
+            vertical_margin: GAP,
+            horizontal_margin: clearance,
+        },
+        BarPosition::Right => Corner {
+            top: false,
+            left: false,
+            vertical_margin: GAP,
+            horizontal_margin: clearance,
+        },
     }
 }
 
@@ -59,26 +79,42 @@ pub struct Placement {
 
 /// The Omarchy/Waybar layer's thickness and output, from `hyprctl layers`.
 pub fn detect_bar(position: BarPosition) -> (i32, Option<String>) {
-    let Ok(output) = std::process::Command::new("hyprctl").args(["layers", "-j"]).output() else {
+    let Ok(output) = std::process::Command::new("hyprctl")
+        .args(["layers", "-j"])
+        .output()
+    else {
         return (0, None);
     };
     if !output.status.success() {
         return (0, None);
     }
-    let Ok(text) = String::from_utf8(output.stdout) else { return (0, None) };
-    let Ok(value) = serde_json::from_str::<Value>(&text) else { return (0, None) };
+    let Ok(text) = String::from_utf8(output.stdout) else {
+        return (0, None);
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&text) else {
+        return (0, None);
+    };
     bar_in(&value, position)
 }
 
 fn bar_in(value: &Value, position: BarPosition) -> (i32, Option<String>) {
-    let Some(monitors) = value.as_object() else { return (0, None) };
+    let Some(monitors) = value.as_object() else {
+        return (0, None);
+    };
     let mut best: Option<(i64, i64, String)> = None;
     for (name, body) in monitors {
-        let Some(levels) = body.get("levels").and_then(Value::as_object) else { continue };
+        let Some(levels) = body.get("levels").and_then(Value::as_object) else {
+            continue;
+        };
         for layers in levels.values().filter_map(Value::as_array) {
             for layer in layers.iter().filter_map(Value::as_object) {
-                let Some((coord, thick)) = bar_edge(layer, position) else { continue };
-                if best.as_ref().is_none_or(|(best_coord, _, _)| coord > *best_coord) {
+                let Some((coord, thick)) = bar_edge(layer, position) else {
+                    continue;
+                };
+                if best
+                    .as_ref()
+                    .is_none_or(|(best_coord, _, _)| coord > *best_coord)
+                {
                     best = Some((coord, thick, name.clone()));
                 }
             }
@@ -91,7 +127,10 @@ fn bar_in(value: &Value, position: BarPosition) -> (i32, Option<String>) {
 }
 
 fn bar_edge(layer: &serde_json::Map<String, Value>, position: BarPosition) -> Option<(i64, i64)> {
-    let namespace = layer.get("namespace").and_then(Value::as_str)?.to_ascii_lowercase();
+    let namespace = layer
+        .get("namespace")
+        .and_then(Value::as_str)?
+        .to_ascii_lowercase();
     if !namespace.contains("bar") || namespace.contains("openusage") {
         return None;
     }
@@ -111,7 +150,10 @@ fn bar_edge(layer: &serde_json::Map<String, Value>, position: BarPosition) -> Op
 pub fn placement() -> Placement {
     let position = read_bar_position();
     let (thickness, output) = detect_bar(position);
-    Placement { corner: corner_for(position, thickness), output }
+    Placement {
+        corner: corner_for(position, thickness),
+        output,
+    }
 }
 
 #[cfg(test)]
@@ -140,6 +182,9 @@ mod tests {
     fn the_bar_layer_sets_the_clearance_and_output() {
         let json = r#"{"DP-2":{"levels":{"2":[{"namespace":"omarchy-bar","x":0,"y":2134,"w":1920,"h":26}]}}}"#;
         let value: Value = serde_json::from_str(json).unwrap();
-        assert_eq!(bar_in(&value, BarPosition::Bottom), (26, Some("DP-2".into())));
+        assert_eq!(
+            bar_in(&value, BarPosition::Bottom),
+            (26, Some("DP-2".into()))
+        );
     }
 }

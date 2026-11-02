@@ -214,7 +214,10 @@ fn a_management_key_shows_the_accounts_spend_summed_over_every_page_of_keys() {
     assert_eq!(dollars(&usage, "Prior 30 Days"), Some(43.5));
     let prior = &usage.breakdowns["prior30"].models;
     assert_eq!(
-        prior.iter().map(|model| model.name.as_str()).collect::<Vec<_>>(),
+        prior
+            .iter()
+            .map(|model| model.name.as_str())
+            .collect::<Vec<_>>(),
         ["anthropic/claude-sonnet-4.5", "openai/gpt-5"]
     );
     assert_eq!(prior[0].dollars, Some(36.25));

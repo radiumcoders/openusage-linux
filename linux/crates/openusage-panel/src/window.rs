@@ -43,10 +43,17 @@ pub(crate) struct Ctx {
     pub(crate) claim_job: RefCell<Option<ClaimJob>>,
     pub(crate) launch_applied: Cell<bool>,
     pub(crate) preview: Cell<Preview>,
+    pub(crate) layout: RefCell<Option<openusage_core::layout::LayoutState>>,
+    pub(crate) undo: RefCell<crate::reorder::UndoStack>,
+    pub(crate) pill: RefCell<Option<String>>,
+    pub(crate) pill_gen: Cell<u64>,
 }
 
 pub fn handle(app: &gtk4::Application, toggle: bool) {
-    if let Some(window) = app.active_window().or_else(|| app.windows().into_iter().next()) {
+    if let Some(window) = app
+        .active_window()
+        .or_else(|| app.windows().into_iter().next())
+    {
         if toggle && window.is_visible() {
             window.set_visible(false);
             return;
@@ -58,7 +65,10 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
         }
         return;
     }
-    let window = gtk4::ApplicationWindow::builder().application(app).title("OpenUsage").build();
+    let window = gtk4::ApplicationWindow::builder()
+        .application(app)
+        .title("OpenUsage")
+        .build();
     window.add_css_class("openusage");
     match forced_scheme() {
         Some(true) => window.add_css_class("force-dark"),
@@ -82,8 +92,14 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
         window.set_anchor(Edge::Bottom, !corner.top);
         window.set_anchor(Edge::Left, corner.left);
         window.set_anchor(Edge::Right, !corner.left);
-        window.set_margin(if corner.top { Edge::Top } else { Edge::Bottom }, corner.vertical_margin);
-        window.set_margin(if corner.left { Edge::Left } else { Edge::Right }, corner.horizontal_margin);
+        window.set_margin(
+            if corner.top { Edge::Top } else { Edge::Bottom },
+            corner.vertical_margin,
+        );
+        window.set_margin(
+            if corner.left { Edge::Left } else { Edge::Right },
+            corner.horizontal_margin,
+        );
         if let Some(monitor) = placement.output.as_deref().and_then(monitor_named) {
             window.set_monitor(Some(&monitor));
         }
@@ -105,7 +121,7 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
         scroll: RefCell::new(None),
         monitors: RefCell::new(Vec::new()),
         corner,
-        max_height: Cell::new(available_height(corner)),
+        max_height: Cell::new(dump_max_height().unwrap_or_else(|| available_height(corner))),
         renaming: RefCell::new(None),
         confirm_remove: Cell::new(false),
         confirm_hub: RefCell::new(None),
@@ -116,6 +132,10 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
         claim_job: RefCell::new(None),
         launch_applied: Cell::new(false),
         preview: Cell::new(Preview::default()),
+        layout: RefCell::new(None),
+        undo: RefCell::new(crate::reorder::UndoStack::default()),
+        pill: RefCell::new(None),
+        pill_gen: Cell::new(0),
     });
     install_commands(&ctx);
     install_dismiss(&ctx);
@@ -151,49 +171,19 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
 
 fn show(ctx: &Rc<Ctx>) {
     ctx.shown.set(true);
-    ctx.max_height.set(available_height(ctx.corner));
+    if dump_max_height().is_none() {
+        ctx.max_height.set(available_height(ctx.corner));
+    }
     if ctx.dirty.get() {
         ctx.dirty.set(false);
         rebuild(ctx, false);
     }
     ctx.window.grab_focus();
     arm(ctx);
-    schedule_dump(ctx);
+    crate::shot::schedule_dump(ctx);
 }
 
-fn schedule_dump(ctx: &Rc<Ctx>) {
-    let Some(path) = std::env::var_os("OPENUSAGE_DUMP") else { return };
-    let ctx = ctx.clone();
-    glib::timeout_add_local(Duration::from_millis(450), move || {
-        dump_panel(&ctx, std::path::Path::new(&path));
-        glib::ControlFlow::Break
-    });
-}
-
-fn dump_panel(ctx: &Ctx, path: &std::path::Path) {
-    if let Some(child) = ctx.window.child() {
-        let width = child.width().max(1);
-        let height = child.height().max(1);
-        let paintable = gtk4::WidgetPaintable::new(Some(&child));
-        let snapshot = gtk4::Snapshot::new();
-        paintable.snapshot(&snapshot, width as f64, height as f64);
-        if let Some(node) = snapshot.to_node() {
-            if let Some(renderer) = ctx.window.renderer() {
-                match renderer.render_texture(&node, None).save_to_png(path) {
-                    Ok(()) => eprintln!("openusage-panel: wrote {}", path.display()),
-                    Err(error) => eprintln!("openusage-panel: dump failed: {error}"),
-                }
-            } else {
-                eprintln!("openusage-panel: window has no renderer yet");
-            }
-        } else {
-            eprintln!("openusage-panel: dump produced an empty frame");
-        }
-    }
-    if let Some(app) = ctx.window.application() {
-        app.quit();
-    }
-}
+pub(crate) use crate::shot::show_pill;
 
 fn arm(ctx: &Rc<Ctx>) {
     ctx.dismiss_armed.set(false);
@@ -228,6 +218,11 @@ fn install_dismiss(ctx: &Rc<Ctx>) {
         } else if key == gdk::Key::Return || key == gdk::Key::KP_Enter {
             crate::session::on_return(&ctx_keys);
             glib::Propagation::Stop
+        } else if (key == gdk::Key::z || key == gdk::Key::Z)
+            && _state.contains(gdk::ModifierType::CONTROL_MASK)
+        {
+            crate::edit::undo(&ctx_keys);
+            glib::Propagation::Stop
         } else {
             glib::Propagation::Proceed
         }
@@ -235,12 +230,19 @@ fn install_dismiss(ctx: &Rc<Ctx>) {
     ctx.window.add_controller(keys);
 
     let ctx_focus = ctx.clone();
-    ctx.window.connect_notify_local(Some("is-active"), move |window, _| {
-        let on_dashboard = *ctx_focus.screen.borrow() == Screen::Dashboard;
-        if on_dashboard && window.is_visible() && !window.is_active() && ctx_focus.dismiss_armed.get() && !ctx_focus.rebuilding.get() {
-            hide(&ctx_focus);
-        }
-    });
+    ctx.window
+        .connect_notify_local(Some("is-active"), move |window, _| {
+            let on_dashboard = *ctx_focus.screen.borrow() == Screen::Dashboard;
+            if on_dashboard
+                && window.is_visible()
+                && !window.is_active()
+                && ctx_focus.dismiss_armed.get()
+                && !ctx_focus.rebuilding.get()
+                && !crate::share::rendering()
+            {
+                hide(&ctx_focus);
+            }
+        });
 
     let ctx_close = ctx.clone();
     ctx.window.connect_close_request(move |_| {
@@ -260,14 +262,17 @@ pub(crate) fn rebuild(ctx: &Rc<Ctx>, reset_scroll: bool) {
     ctx.rebuilding.set(true);
     ctx.dismiss_armed.set(false);
     let preserved = if reset_scroll { 0.0 } else { scroll_value(ctx) };
-    let model = model::load();
+    let model = model::load_with(&crate::edit::ensure(ctx));
     crate::launch::apply(ctx, &model);
     ctx.refreshed_at.set(model.refreshed_at);
     let built = crate::session::build(ctx, &model);
     *ctx.updated.borrow_mut() = built.updated;
     *ctx.next.borrow_mut() = built.next;
     *ctx.scroll.borrow_mut() = Some(built.scroll.clone());
-    ctx.window.set_child(Some(&built.root));
+    ctx.window.set_child(Some(&crate::shot::pill_overlay(
+        &built.root,
+        ctx.pill.borrow().as_deref(),
+    )));
     fit(ctx, &built.root);
     if preserved > 0.0 {
         if let Some(scroll) = ctx.scroll.borrow().as_ref() {
@@ -330,7 +335,11 @@ fn tick_footer(ctx: &Ctx) {
 }
 
 fn scroll_value(ctx: &Ctx) -> f64 {
-    ctx.scroll.borrow().as_ref().map(|scroll| scroll.vadjustment().value()).unwrap_or(0.0)
+    ctx.scroll
+        .borrow()
+        .as_ref()
+        .map(|scroll| scroll.vadjustment().value())
+        .unwrap_or(0.0)
 }
 
 fn fit(ctx: &Ctx, root: &impl gtk4::prelude::IsA<gtk4::Widget>) {
@@ -345,12 +354,19 @@ fn monitor_named(name: &str) -> Option<gdk::Monitor> {
     let display = gdk::Display::default()?;
     let monitors = display.monitors();
     for index in 0..monitors.n_items() {
-        let Some(monitor) = monitors.item(index).and_downcast::<gdk::Monitor>() else { continue };
+        let Some(monitor) = monitors.item(index).and_downcast::<gdk::Monitor>() else {
+            continue;
+        };
         if monitor.connector().as_deref() == Some(name) {
             return Some(monitor);
         }
     }
     None
+}
+
+/// Dumps grow to the page instead of the monitor, so a screenshot includes the whole scroll.
+fn dump_max_height() -> Option<i32> {
+    std::env::var_os("OPENUSAGE_DUMP").map(|_| 4000)
 }
 
 fn available_height(corner: Corner) -> i32 {
@@ -380,7 +396,9 @@ fn watch_dir(ctx: &Rc<Ctx>, directory: std::path::PathBuf) {
             if parent.is_dir() {
                 let ctx = ctx.clone();
                 let directory = directory.clone();
-                if let Some(monitor) = monitor_directory(&parent, &ctx, move |file| file == directory) {
+                if let Some(monitor) =
+                    monitor_directory(&parent, &ctx, move |file| file == directory)
+                {
                     ctx.monitors.borrow_mut().push(monitor);
                 }
             }
@@ -399,12 +417,18 @@ fn monitor_directory(
     accept: impl Fn(&std::path::Path) -> bool + 'static,
 ) -> Option<gio::FileMonitor> {
     let file = gio::File::for_path(directory);
-    let monitor = file.monitor_directory(gio::FileMonitorFlags::NONE, None::<&gio::Cancellable>).ok()?;
+    let monitor = file
+        .monitor_directory(gio::FileMonitorFlags::NONE, None::<&gio::Cancellable>)
+        .ok()?;
     let ctx = ctx.clone();
     let pending = Rc::new(Cell::new(false));
     monitor.connect_changed(move |_monitor, file, _other, _event| {
         let Some(path) = file.path() else { return };
-        let watched = path.file_name().and_then(|name| name.to_str()).is_some_and(model::is_watched_file) || accept(&path);
+        let watched = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(model::is_watched_file)
+            || accept(&path);
         if !watched {
             return;
         }

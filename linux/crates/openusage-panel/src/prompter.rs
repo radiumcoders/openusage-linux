@@ -119,7 +119,12 @@ impl LoginPrompter for Prompter {
     }
 }
 
-pub fn spawn(kind: ProviderKind, method: LoginMethod, replace: Option<Uuid>, generation: u64) -> Signin {
+pub fn spawn(
+    kind: ProviderKind,
+    method: LoginMethod,
+    replace: Option<Uuid>,
+    generation: u64,
+) -> Signin {
     let prompter = Arc::new(Prompter::new());
     let done = Arc::new(AtomicBool::new(false));
     let outcome = Arc::new(Mutex::new(None));
@@ -177,7 +182,13 @@ pub fn spawn_hub(url: String, key: String, generation: u64) -> Signin {
     signin
 }
 
-fn save(kind: ProviderKind, method: &LoginMethod, replace: Option<Uuid>, label: String, credential: &openusage_core::account::Credential) -> Outcome {
+fn save(
+    kind: ProviderKind,
+    method: &LoginMethod,
+    replace: Option<Uuid>,
+    label: String,
+    credential: &openusage_core::account::Credential,
+) -> Outcome {
     let settings = Settings::open();
     let vault = SecretToolVault::default();
     let result = if let Some(id) = replace {
@@ -197,7 +208,9 @@ fn save(kind: ProviderKind, method: &LoginMethod, replace: Option<Uuid>, label: 
 
 /// Applies a finished prompt or result onto the flow. The caller opens browser URLs and rebuilds.
 pub fn drive(flow: &mut AddFlow, signin: &mut Option<Signin>) -> Drive {
-    let Some(active) = signin.as_ref() else { return Drive::Idle };
+    let Some(active) = signin.as_ref() else {
+        return Drive::Idle;
+    };
     if active.generation != flow.generation {
         *signin = None;
         return Drive::Idle;

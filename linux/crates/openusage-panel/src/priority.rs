@@ -26,10 +26,19 @@ pub fn view(
     let notices: Vec<&DashboardAccount> = model
         .accounts
         .iter()
-        .filter(|account| account.problem.as_deref().is_some_and(|text| !text.starts_with("Last updated")))
+        .filter(|account| {
+            account
+                .problem
+                .as_deref()
+                .is_some_and(|text| !text.starts_with("Last updated"))
+        })
         .collect();
-    let all_waiting = !model.accounts.is_empty() && model.accounts.iter().all(|account| account.waiting);
-    let any_limit = model.accounts.iter().any(|account| account.lines.iter().any(|line| line.data.is_bounded()));
+    let all_waiting =
+        !model.accounts.is_empty() && model.accounts.iter().all(|account| account.waiting);
+    let any_limit = model
+        .accounts
+        .iter()
+        .any(|account| account.lines.iter().any(|line| line.data.is_bounded()));
 
     if all_waiting {
         return centered_message("Waiting for Usage");
@@ -49,7 +58,11 @@ pub fn view(
 
     let page = gtk4::Box::new(gtk4::Orientation::Vertical, 14);
     if !board.attention.is_empty() {
-        page.append(&section("Running Out", attention_rows(&board, model, on_meter, on_reset), false));
+        page.append(&section(
+            "Running Out",
+            attention_rows(&board, model, on_meter, on_reset),
+            false,
+        ));
     } else if any_limit && notices.is_empty() {
         page.append(&clear_row());
     }
@@ -57,12 +70,21 @@ pub fn view(
         page.append(&section("Used Up", used_up_rows(&board, model), true));
     }
     if !notices.is_empty() {
-        page.append(&section("Needs Attention", notice_rows(&notices, on_fix), false));
+        page.append(&section(
+            "Needs Attention",
+            notice_rows(&notices, on_fix),
+            false,
+        ));
     }
     page.upcast()
 }
 
-fn attention_rows(board: &PriorityBoard, model: &Model, on_meter: &Rc<dyn Fn()>, on_reset: &Rc<dyn Fn()>) -> gtk4::Box {
+fn attention_rows(
+    board: &PriorityBoard,
+    model: &Model,
+    on_meter: &Rc<dyn Fn()>,
+    on_reset: &Rc<dyn Fn()>,
+) -> gtk4::Box {
     let box_ = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
     for item in &board.attention {
         box_.append(&attention_row(item, model, on_meter, on_reset));
@@ -70,10 +92,19 @@ fn attention_rows(board: &PriorityBoard, model: &Model, on_meter: &Rc<dyn Fn()>,
     box_
 }
 
-fn attention_row(item: &PriorityItem, model: &Model, on_meter: &Rc<dyn Fn()>, on_reset: &Rc<dyn Fn()>) -> gtk4::Box {
+fn attention_row(
+    item: &PriorityItem,
+    model: &Model,
+    on_meter: &Rc<dyn Fn()>,
+    on_reset: &Rc<dyn Fn()>,
+) -> gtk4::Box {
     let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 10);
     row.set_size_request(-1, 46);
-    row.append(&gauge(item.line.data.fraction(), item.reason.severity(), item.account.account.kind));
+    row.append(&gauge(
+        item.line.data.fraction(),
+        item.reason.severity(),
+        item.account.account.kind,
+    ));
 
     let names = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
     names.set_hexpand(true);
@@ -82,7 +113,10 @@ fn attention_row(item: &PriorityItem, model: &Model, on_meter: &Rc<dyn Fn()>, on
     title.set_halign(gtk4::Align::Start);
     title.set_ellipsize(pango::EllipsizeMode::End);
     names.append(&title);
-    let caption = ui::text(format::account_name(&item.account.account), &["caption", "secondary"]);
+    let caption = ui::text(
+        format::account_name(&item.account.account),
+        &["caption", "secondary"],
+    );
     caption.set_halign(gtk4::Align::Start);
     caption.set_ellipsize(pango::EllipsizeMode::End);
     names.append(&caption);
@@ -92,7 +126,12 @@ fn attention_row(item: &PriorityItem, model: &Model, on_meter: &Rc<dyn Fn()>, on
     figures.set_valign(gtk4::Align::Center);
     figures.set_halign(gtk4::Align::End);
     let toggle = item.line.data.has_meter_style_toggle();
-    let value = rows::amount(&item.line.data.amount_text(), item.reason.severity(), toggle, on_meter);
+    let value = rows::amount(
+        &item.line.data.amount_text(),
+        item.reason.severity(),
+        toggle,
+        on_meter,
+    );
     value.set_halign(gtk4::Align::End);
     figures.append(&value);
     if let Some(reset) = format::short_reset(&item.line.data, model.now, model.absolute_resets) {
@@ -126,7 +165,10 @@ fn used_up_row(item: &PriorityItem, model: &Model) -> gtk4::Box {
     row.append(&icon);
     let title = ui::text(&item.line.data.title, &["prio-quiet"]);
     row.append(&title);
-    let caption = ui::text(format::account_name(&item.account.account), &["caption", "secondary"]);
+    let caption = ui::text(
+        format::account_name(&item.account.account),
+        &["caption", "secondary"],
+    );
     caption.set_hexpand(true);
     caption.set_halign(gtk4::Align::Start);
     caption.set_ellipsize(pango::EllipsizeMode::End);
@@ -134,7 +176,10 @@ fn used_up_row(item: &PriorityItem, model: &Model) -> gtk4::Box {
     row.append(&caption);
     let note = match &item.reason {
         Reason::EmptyBalance => item.line.data.amount_text(),
-        Reason::UsedUp { .. } => format::short_reset(&item.line.data, model.now, model.absolute_resets).unwrap_or_else(|| "Used up".into()),
+        Reason::UsedUp { .. } => {
+            format::short_reset(&item.line.data, model.now, model.absolute_resets)
+                .unwrap_or_else(|| "Used up".into())
+        }
         Reason::Low { .. } => String::new(),
     };
     if !note.is_empty() {
@@ -187,7 +232,11 @@ fn section(title: &str, rows: gtk4::Box, faded: bool) -> gtk4::Box {
     box_
 }
 
-fn gauge(fraction: f64, severity: Severity, kind: openusage_core::kind::ProviderKind) -> gtk4::Overlay {
+fn gauge(
+    fraction: f64,
+    severity: Severity,
+    kind: openusage_core::kind::ProviderKind,
+) -> gtk4::Overlay {
     let area = gtk4::DrawingArea::new();
     area.set_content_width(32);
     area.set_content_height(32);
@@ -203,14 +252,24 @@ fn gauge(fraction: f64, severity: Severity, kind: openusage_core::kind::Provider
     overlay
 }
 
-fn paint_gauge(context: &cairo::Context, width: i32, height: i32, fraction: f64, severity: Severity) {
+fn paint_gauge(
+    context: &cairo::Context,
+    width: i32,
+    height: i32,
+    fraction: f64,
+    severity: Severity,
+) {
     let dark = prefers_dark();
     let cx = width as f64 / 2.0;
     let cy = height as f64 / 2.0;
     let radius = width as f64 / 2.0 - 2.0;
     context.set_line_width(3.0);
     context.set_line_cap(cairo::LineCap::Round);
-    let track = if dark { (1.0, 1.0, 1.0, 0.12) } else { (0.0, 0.0, 0.0, 0.09) };
+    let track = if dark {
+        (1.0, 1.0, 1.0, 0.12)
+    } else {
+        (0.0, 0.0, 0.0, 0.09)
+    };
     context.set_source_rgba(track.0, track.1, track.2, track.3);
     context.arc(cx, cy, radius, 0.0, std::f64::consts::TAU);
     let _ = context.stroke();
@@ -218,7 +277,13 @@ fn paint_gauge(context: &cairo::Context, width: i32, height: i32, fraction: f64,
     if fraction > 0.0 {
         let (red, green, blue) = rows::severity_rgb(severity, dark);
         context.set_source_rgb(red, green, blue);
-        context.arc(cx, cy, radius, -std::f64::consts::FRAC_PI_2, -std::f64::consts::FRAC_PI_2 + std::f64::consts::TAU * fraction);
+        context.arc(
+            cx,
+            cy,
+            radius,
+            -std::f64::consts::FRAC_PI_2,
+            -std::f64::consts::FRAC_PI_2 + std::f64::consts::TAU * fraction,
+        );
         let _ = context.stroke();
     }
 }
@@ -233,7 +298,10 @@ fn clear_row() -> gtk4::Box {
     row.append(&mark);
     let names = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
     names.append(&ui::text("All Clear", &["prio-title"]));
-    names.append(&ui::text("Nothing is running out.", &["caption", "secondary"]));
+    names.append(&ui::text(
+        "Nothing is running out.",
+        &["caption", "secondary"],
+    ));
     row.append(&names);
     row
 }

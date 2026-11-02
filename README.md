@@ -33,7 +33,9 @@ Either way, the app updates itself in place through signed, notarized
 ## Linux
 
 On Linux, OpenUsage is a Waybar module, a GTK panel, and the `openusage` command, with the same
-providers and sign-ins as the Mac app. Build it with Cargo; a Swift toolchain is not required.
+providers and sign-ins as the Mac app. It reads the Mac app's dashboard layout
+(`openusage.layout.v2`): account order, metric order, and hidden metrics. Build it with Cargo; a
+Swift toolchain is not required.
 
 ```sh
 script/install_linux.sh

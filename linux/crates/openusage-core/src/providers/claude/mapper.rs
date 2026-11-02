@@ -119,7 +119,9 @@ pub(crate) fn confirm_detail(status: &GrantStatus) -> Option<String> {
 
 pub(crate) fn reset_claim_outcome(response: &HttpResponse) -> crate::claims::ClaimOutcome {
     use crate::claims::{ClaimFailure, ClaimOutcome};
-    if response.status == 403 && String::from_utf8_lossy(&response.body).contains("scope requirement") {
+    if response.status == 403
+        && String::from_utf8_lossy(&response.body).contains("scope requirement")
+    {
         return ClaimOutcome::Failed(ClaimFailure::NotPermitted);
     }
     if ProviderError::is_auth_failure(response) {

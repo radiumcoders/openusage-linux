@@ -68,7 +68,8 @@ pub(crate) fn claim_request(
     grant_id: &str,
     request_id: &str,
 ) -> HttpRequest {
-    let url = format!("https://api.anthropic.com/api/organizations/{organization}/reset_rate_limits");
+    let url =
+        format!("https://api.anthropic.com/api/organizations/{organization}/reset_rate_limits");
     let body = json!({
         "grant_id": grant_id,
         "program": "cedar_ember",

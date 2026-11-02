@@ -19,12 +19,21 @@ use crate::error::LoginError;
 #[derive(Debug, Clone, PartialEq)]
 pub enum LoginPrompt {
     /// Open this URL; when `accepts_pasted_code`, a pasted code or callback URL also completes it.
-    Browser { url: String, accepts_pasted_code: bool },
+    Browser {
+        url: String,
+        accepts_pasted_code: bool,
+    },
     /// The page shows a token for the user to paste. Nothing comes back on its own.
     BrowserToken { url: String },
-    DeviceCode { user_code: String, verification_url: String },
+    DeviceCode {
+        user_code: String,
+        verification_url: String,
+    },
     /// Ask for an API key or token (read with echo off in a terminal).
-    Secret { label: String, key_page: Option<String> },
+    Secret {
+        label: String,
+        key_page: Option<String>,
+    },
 }
 
 pub trait LoginPrompter: Send + Sync {
@@ -53,7 +62,10 @@ impl Pkce {
         rand::thread_rng().fill_bytes(&mut bytes);
         let verifier = base64_url(&bytes);
         let challenge = Self::challenge(&verifier);
-        Self { verifier, challenge }
+        Self {
+            verifier,
+            challenge,
+        }
     }
 
     pub fn challenge(verifier: &str) -> String {
@@ -79,7 +91,10 @@ impl LoopbackServer {
     pub fn start(state: &str, port: Option<u16>, path: &str) -> Result<Self, LoginError> {
         let listener = TcpListener::bind(("127.0.0.1", port.unwrap_or(0)))
             .map_err(|error| LoginError::ListenerFailed(error.to_string()))?;
-        let port = listener.local_addr().map_err(|error| LoginError::ListenerFailed(error.to_string()))?.port();
+        let port = listener
+            .local_addr()
+            .map_err(|error| LoginError::ListenerFailed(error.to_string()))?
+            .port();
         Ok(Self {
             listener,
             state: state.to_string(),
@@ -128,7 +143,11 @@ impl LoopbackServer {
             reply(&mut stream, 404, "Sign-in callback not found.");
             return None;
         }
-        let query = |name: &str| url.query_pairs().find(|(key, _)| key == name).map(|(_, value)| value.into_owned());
+        let query = |name: &str| {
+            url.query_pairs()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.into_owned())
+        };
         if query("state").as_deref() != Some(self.state.as_str()) {
             reply(&mut stream, 400, "Sign-in state did not match.");
             return None;
@@ -139,7 +158,11 @@ impl LoopbackServer {
         }
         match query("code").filter(|code| !code.is_empty()) {
             Some(code) => {
-                reply(&mut stream, 200, "Sign-in complete. You may close this page.");
+                reply(
+                    &mut stream,
+                    200,
+                    "Sign-in complete. You may close this page.",
+                );
                 Some(Ok(code))
             }
             None => {
@@ -202,7 +225,10 @@ pub fn authorize_in_browser(
     for (key, value) in extra_query {
         url.query_pairs_mut().append_pair(key, value);
     }
-    prompter.show(&LoginPrompt::Browser { url: url.to_string(), accepts_pasted_code: true });
+    prompter.show(&LoginPrompt::Browser {
+        url: url.to_string(),
+        accepts_pasted_code: true,
+    });
     let pasted = prompter.pasted_codes();
     let input = thread::scope(|scope| {
         let (sender, receiver) = mpsc::channel();
@@ -217,7 +243,9 @@ pub fn authorize_in_browser(
             }
             if paste_open {
                 match pasted.try_recv() {
-                    Ok(line) if !line.trim().is_empty() => break Ok(AuthorizationInput::Pasted(line)),
+                    Ok(line) if !line.trim().is_empty() => {
+                        break Ok(AuthorizationInput::Pasted(line))
+                    }
                     Ok(_) | Err(mpsc::TryRecvError::Empty) => {}
                     Err(mpsc::TryRecvError::Disconnected) => paste_open = false,
                 }
@@ -230,13 +258,24 @@ pub fn authorize_in_browser(
 }
 
 /// The code from a callback, or from a pasted code, `code#state` pair, or whole callback URL.
-pub fn authorization_code(input: AuthorizationInput, expected_state: &str) -> Result<String, LoginError> {
+pub fn authorization_code(
+    input: AuthorizationInput,
+    expected_state: &str,
+) -> Result<String, LoginError> {
     match input {
         AuthorizationInput::Callback(code) => Ok(code),
         AuthorizationInput::Pasted(value) => {
             let trimmed = value.trim();
-            let (code, state) = if let Ok(url) = url::Url::parse(trimmed).ok().filter(|url| url.host().is_some()).ok_or(()) {
-                let get = |name: &str| url.query_pairs().find(|(key, _)| key == name).map(|(_, value)| value.into_owned());
+            let (code, state) = if let Ok(url) = url::Url::parse(trimmed)
+                .ok()
+                .filter(|url| url.host().is_some())
+                .ok_or(())
+            {
+                let get = |name: &str| {
+                    url.query_pairs()
+                        .find(|(key, _)| key == name)
+                        .map(|(_, value)| value.into_owned())
+                };
                 (get("code"), get("state"))
             } else if let Some((code, state)) = trimmed.split_once('#') {
                 (Some(code.to_string()), Some(state.to_string()))
@@ -248,7 +287,8 @@ pub fn authorization_code(input: AuthorizationInput, expected_state: &str) -> Re
                     return Err(LoginError::InvalidState);
                 }
             }
-            code.filter(|code| !code.is_empty()).ok_or(LoginError::InvalidCode)
+            code.filter(|code| !code.is_empty())
+                .ok_or(LoginError::InvalidCode)
         }
     }
 }
@@ -295,9 +335,18 @@ mod tests {
     fn pasted_codes_are_read_from_urls_and_pairs() {
         let url = AuthorizationInput::Pasted("http://localhost:1/cb?code=abc&state=s".into());
         assert_eq!(authorization_code(url, "s").unwrap(), "abc");
-        assert_eq!(authorization_code(AuthorizationInput::Pasted("abc#s".into()), "s").unwrap(), "abc");
-        assert_eq!(authorization_code(AuthorizationInput::Pasted("abc#x".into()), "s"), Err(LoginError::InvalidState));
-        assert_eq!(authorization_code(AuthorizationInput::Pasted(" abc ".into()), "s").unwrap(), "abc");
+        assert_eq!(
+            authorization_code(AuthorizationInput::Pasted("abc#s".into()), "s").unwrap(),
+            "abc"
+        );
+        assert_eq!(
+            authorization_code(AuthorizationInput::Pasted("abc#x".into()), "s"),
+            Err(LoginError::InvalidState)
+        );
+        assert_eq!(
+            authorization_code(AuthorizationInput::Pasted(" abc ".into()), "s").unwrap(),
+            "abc"
+        );
     }
 
     #[test]
@@ -306,9 +355,13 @@ mod tests {
         let address = server.listener.local_addr().unwrap();
         let client = thread::spawn(move || {
             let mut stream = TcpStream::connect(address).unwrap();
-            stream.write_all(b"GET /callback?state=wrong&code=x HTTP/1.1\r\n\r\n").unwrap();
+            stream
+                .write_all(b"GET /callback?state=wrong&code=x HTTP/1.1\r\n\r\n")
+                .unwrap();
             let mut stream = TcpStream::connect(address).unwrap();
-            stream.write_all(b"GET /callback?state=s1&code=good HTTP/1.1\r\n\r\n").unwrap();
+            stream
+                .write_all(b"GET /callback?state=s1&code=good HTTP/1.1\r\n\r\n")
+                .unwrap();
             let mut reply = String::new();
             stream.read_to_string(&mut reply).unwrap();
             reply

@@ -16,7 +16,13 @@ pub struct HttpRequest {
 
 impl HttpRequest {
     pub fn new(method: &str, url: impl Into<String>) -> Self {
-        Self { method: method.into(), url: url.into(), headers: BTreeMap::new(), body: None, timeout: Duration::from_secs(15) }
+        Self {
+            method: method.into(),
+            url: url.into(),
+            headers: BTreeMap::new(),
+            body: None,
+            timeout: Duration::from_secs(15),
+        }
     }
 
     pub fn get(url: impl Into<String>) -> Self {
@@ -67,7 +73,9 @@ pub struct HttpResponse {
 
 impl HttpResponse {
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers.get(&name.to_ascii_lowercase()).map(String::as_str)
+        self.headers
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
     }
 
     pub fn is_success(&self) -> bool {
@@ -88,9 +96,14 @@ impl HttpResponse {
         let seconds = value.parse::<f64>().ok().or_else(|| {
             chrono::DateTime::parse_from_rfc2822(value)
                 .ok()
-                .map(|date| (date.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_milliseconds() as f64 / 1000.0)
+                .map(|date| {
+                    (date.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_milliseconds()
+                        as f64
+                        / 1000.0
+                })
         })?;
-        (seconds.is_finite() && seconds > 0.0).then(|| seconds.min(crate::refresh::FAILURE_BACKOFF_CAP_SECONDS as f64))
+        (seconds.is_finite() && seconds > 0.0)
+            .then(|| seconds.min(crate::refresh::FAILURE_BACKOFF_CAP_SECONDS as f64))
     }
 }
 
@@ -106,14 +119,17 @@ pub struct UreqClient {
 
 impl UreqClient {
     pub fn new() -> Self {
-        let mut builder = ureq::AgentBuilder::new().user_agent(&format!("OpenUsage/{}", crate::VERSION));
+        let mut builder =
+            ureq::AgentBuilder::new().user_agent(&format!("OpenUsage/{}", crate::VERSION));
         if let Some(proxy) = crate::proxy::load() {
             match ureq::Proxy::new(proxy.ureq_url()) {
                 Ok(proxy) => builder = builder.proxy(proxy),
                 Err(error) => log::error("config", &format!("proxy off: {error}")),
             }
         }
-        Self { agent: builder.build() }
+        Self {
+            agent: builder.build(),
+        }
     }
 }
 
@@ -126,7 +142,10 @@ impl Default for UreqClient {
 impl HttpClient for UreqClient {
     fn send(&self, request: HttpRequest) -> Result<HttpResponse, ProviderError> {
         let start = Instant::now();
-        let mut call = self.agent.request(&request.method, &request.url).timeout(request.timeout);
+        let mut call = self
+            .agent
+            .request(&request.method, &request.url)
+            .timeout(request.timeout);
         for (name, value) in &request.headers {
             call = call.set(name, value);
         }
@@ -137,7 +156,15 @@ impl HttpClient for UreqClient {
         let response = match result {
             Ok(response) | Err(ureq::Error::Status(_, response)) => response,
             Err(ureq::Error::Transport(error)) => {
-                log::debug("http", &format!("{} {} failed: {}", request.method, endpoint(&request.url), error.kind()));
+                log::debug(
+                    "http",
+                    &format!(
+                        "{} {} failed: {}",
+                        request.method,
+                        endpoint(&request.url),
+                        error.kind()
+                    ),
+                );
                 return Err(ProviderError::ConnectionFailed);
             }
         };
@@ -156,13 +183,25 @@ impl HttpClient for UreqClient {
             .map_err(|_| ProviderError::ConnectionFailed)?;
         log::debug(
             "http",
-            &format!("{} {} -> {} ({} ms)", request.method, endpoint(&request.url), status, start.elapsed().as_millis()),
+            &format!(
+                "{} {} -> {} ({} ms)",
+                request.method,
+                endpoint(&request.url),
+                status,
+                start.elapsed().as_millis()
+            ),
         );
-        Ok(HttpResponse { status, headers, body })
+        Ok(HttpResponse {
+            status,
+            headers,
+            body,
+        })
     }
 }
 
 /// Host and path only: query strings can carry tokens.
 fn endpoint(url: &str) -> String {
-    url::Url::parse(url).map(|url| format!("{}{}", url.host_str().unwrap_or(""), url.path())).unwrap_or_default()
+    url::Url::parse(url)
+        .map(|url| format!("{}{}", url.host_str().unwrap_or(""), url.path()))
+        .unwrap_or_default()
 }

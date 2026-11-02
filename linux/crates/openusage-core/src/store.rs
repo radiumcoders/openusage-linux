@@ -27,8 +27,17 @@ impl Lock {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let file = OpenOptions::new().create(true).read(true).write(true).truncate(false).open(path.with_extension("lock"))?;
-        let operation = if exclusive { libc::LOCK_EX } else { libc::LOCK_SH };
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(path.with_extension("lock"))?;
+        let operation = if exclusive {
+            libc::LOCK_EX
+        } else {
+            libc::LOCK_SH
+        };
         if unsafe { libc::flock(file.as_raw_fd(), operation) } != 0 {
             return Err(std::io::Error::last_os_error());
         }
@@ -60,7 +69,9 @@ pub struct Settings {
 
 impl Settings {
     pub fn open() -> Self {
-        Self { path: paths::settings_file() }
+        Self {
+            path: paths::settings_file(),
+        }
     }
 
     pub fn at(path: PathBuf) -> Self {
@@ -72,11 +83,19 @@ impl Settings {
     }
 
     fn read_unlocked(&self) -> BTreeMap<String, Value> {
-        let Ok(data) = fs::read(&self.path) else { return BTreeMap::new() };
+        let Ok(data) = fs::read(&self.path) else {
+            return BTreeMap::new();
+        };
         match plist::from_bytes::<Value>(&data) {
             Ok(Value::Dictionary(dictionary)) => dictionary.into_iter().collect(),
             Ok(_) | Err(_) => {
-                log::error("config", &format!("{} is not a property list dictionary; ignoring it", self.path.display()));
+                log::error(
+                    "config",
+                    &format!(
+                        "{} is not a property list dictionary; ignoring it",
+                        self.path.display()
+                    ),
+                );
                 BTreeMap::new()
             }
         }
@@ -103,12 +122,15 @@ impl Settings {
         edit(&mut values);
         let dictionary: plist::Dictionary = values.into_iter().collect();
         let mut data = Vec::new();
-        plist::to_writer_xml(&mut data, &Value::Dictionary(dictionary)).map_err(std::io::Error::other)?;
+        plist::to_writer_xml(&mut data, &Value::Dictionary(dictionary))
+            .map_err(std::io::Error::other)?;
         write_atomically(&self.path, &data)
     }
 
     pub fn bool(&self, key: &str) -> bool {
-        self.get(key).and_then(|value| value.as_boolean()).unwrap_or(false)
+        self.get(key)
+            .and_then(|value| value.as_boolean())
+            .unwrap_or(false)
     }
 
     pub fn set_bool(&self, key: &str, on: bool) -> std::io::Result<()> {
@@ -118,7 +140,8 @@ impl Settings {
     }
 
     pub fn string(&self, key: &str) -> Option<String> {
-        self.get(key).and_then(|value| value.as_string().map(str::to_string))
+        self.get(key)
+            .and_then(|value| value.as_string().map(str::to_string))
     }
 
     pub fn set_string(&self, key: &str, text: &str) -> std::io::Result<()> {
@@ -135,9 +158,16 @@ impl Settings {
     }
 
     fn decode_accounts(value: Option<Value>) -> (Vec<Account>, Vec<serde_json::Value>) {
-        let Some(data) = value.and_then(|value| value.into_data()) else { return (vec![], vec![]) };
-        let Ok(serde_json::Value::Array(entries)) = serde_json::from_slice::<serde_json::Value>(&data) else {
-            log::error("auth:accounts", "cannot read the stored account list, which is not a JSON array");
+        let Some(data) = value.and_then(|value| value.into_data()) else {
+            return (vec![], vec![]);
+        };
+        let Ok(serde_json::Value::Array(entries)) =
+            serde_json::from_slice::<serde_json::Value>(&data)
+        else {
+            log::error(
+                "auth:accounts",
+                "cannot read the stored account list, which is not a JSON array",
+            );
             return (vec![], vec![]);
         };
         let mut accounts = Vec::new();
@@ -160,8 +190,10 @@ impl Settings {
         self.update(|values| {
             let (mut accounts, unreadable) = Self::decode_accounts(values.remove(ACCOUNTS_KEY));
             edit(&mut accounts);
-            let mut entries: Vec<serde_json::Value> =
-                accounts.iter().filter_map(|account| serde_json::to_value(account).ok()).collect();
+            let mut entries: Vec<serde_json::Value> = accounts
+                .iter()
+                .filter_map(|account| serde_json::to_value(account).ok())
+                .collect();
             entries.extend(unreadable);
             let data = serde_json::to_vec(&entries).unwrap_or_else(|_| b"[]".to_vec());
             values.insert(ACCOUNTS_KEY.to_string(), Value::Data(data));
@@ -177,7 +209,9 @@ pub struct SnapshotCache {
 
 impl SnapshotCache {
     pub fn open() -> Self {
-        Self { path: paths::snapshots_file() }
+        Self {
+            path: paths::snapshots_file(),
+        }
     }
 
     pub fn at(path: PathBuf) -> Self {
@@ -189,9 +223,14 @@ impl SnapshotCache {
     }
 
     fn read_unlocked(&self) -> BTreeMap<String, ProviderSnapshot> {
-        let Ok(data) = fs::read(&self.path) else { return BTreeMap::new() };
+        let Ok(data) = fs::read(&self.path) else {
+            return BTreeMap::new();
+        };
         serde_json::from_slice(&data).unwrap_or_else(|error| {
-            log::warn("cache", &format!("cache decode failed, dropping stored snapshots: {error}"));
+            log::warn(
+                "cache",
+                &format!("cache decode failed, dropping stored snapshots: {error}"),
+            );
             BTreeMap::new()
         })
     }
@@ -219,7 +258,10 @@ impl SnapshotCache {
         let result = Lock::acquire(&self.path, true).and_then(|_lock| {
             let mut snapshots = self.read_unlocked();
             change(&mut snapshots);
-            write_atomically(&self.path, &serde_json::to_vec(&snapshots).unwrap_or_default())
+            write_atomically(
+                &self.path,
+                &serde_json::to_vec(&snapshots).unwrap_or_default(),
+            )
         });
         if let Err(error) = result {
             log::warn("cache", &format!("snapshot not persisted: {error}"));
@@ -248,12 +290,19 @@ mod tests {
                 values.insert(ACCOUNTS_KEY.into(), Value::Data(entries.to_vec()));
             })
             .unwrap();
-        settings.update_accounts(|accounts| accounts.push(Account::new(ProviderKind::Zai, "Z.ai", None))).unwrap();
+        settings
+            .update_accounts(|accounts| {
+                accounts.push(Account::new(ProviderKind::Zai, "Z.ai", None))
+            })
+            .unwrap();
         assert_eq!(settings.accounts().len(), 1);
         let raw = settings.get(ACCOUNTS_KEY).unwrap().into_data().unwrap();
         assert!(String::from_utf8(raw).unwrap().contains("future"));
-        settings.set_bool("openusage.notifications.underTenPercent", true).unwrap();
-        assert!(Settings::at(dir.join("settings.plist")).bool("openusage.notifications.underTenPercent"));
+        settings
+            .set_bool("openusage.notifications.underTenPercent", true)
+            .unwrap();
+        assert!(Settings::at(dir.join("settings.plist"))
+            .bool("openusage.notifications.underTenPercent"));
         fs::remove_dir_all(dir).unwrap();
     }
 }

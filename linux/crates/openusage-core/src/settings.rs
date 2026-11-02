@@ -29,7 +29,8 @@ mod tests {
 
     #[test]
     fn reads_the_mac_display_keys() {
-        let path = std::env::temp_dir().join(format!("openusage-settings-{}.plist", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("openusage-settings-{}.plist", uuid::Uuid::new_v4()));
         let settings = Settings::at(path.clone());
         assert_eq!(display_mode(&settings), DisplayMode::Remaining);
         assert!(!absolute_resets(&settings));

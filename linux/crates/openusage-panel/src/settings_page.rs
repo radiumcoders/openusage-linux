@@ -10,13 +10,39 @@ use crate::ui;
 use crate::view::Built;
 
 const ALERTS: [(&str, &str, &str); 3] = [
-    ("Almost Out", "A limit drops under 10%", "openusage.notifications.underTenPercent"),
-    ("Cutting It Close", "A limit drops under 30%", "openusage.notifications.healthyToClose"),
-    ("Will Run Out", "A limit may run out before its reset", "openusage.notifications.closeToRunningOut"),
+    (
+        "Almost Out",
+        "A limit drops under 10%",
+        "openusage.notifications.underTenPercent",
+    ),
+    (
+        "Cutting It Close",
+        "A limit drops under 30%",
+        "openusage.notifications.healthyToClose",
+    ),
+    (
+        "Will Run Out",
+        "A limit may run out before its reset",
+        "openusage.notifications.closeToRunningOut",
+    ),
 ];
 
-const MENU_LABELS: [&str; 6] = ["App Icon Only", "Up to 1", "Up to 2", "Up to 3", "Up to 4", "Up to 5"];
-const MENU_RAWS: [&str; 6] = ["iconOnly", "upToOne", "upToTwo", "upToThree", "upToFour", "upToFive"];
+const MENU_LABELS: [&str; 6] = [
+    "App Icon Only",
+    "Up to 1",
+    "Up to 2",
+    "Up to 3",
+    "Up to 4",
+    "Up to 5",
+];
+const MENU_RAWS: [&str; 6] = [
+    "iconOnly",
+    "upToOne",
+    "upToTwo",
+    "upToThree",
+    "upToFour",
+    "upToFive",
+];
 
 pub struct Hooks {
     pub on_back: Rc<dyn Fn()>,
@@ -55,7 +81,10 @@ pub fn raw_menu(index: usize) -> &'static str {
 }
 
 pub fn alert_key(index: usize) -> &'static str {
-    ALERTS.get(index).map(|(_, _, key)| *key).unwrap_or(ALERTS[0].2)
+    ALERTS
+        .get(index)
+        .map(|(_, _, key)| *key)
+        .unwrap_or(ALERTS[0].2)
 }
 
 pub fn build(snapshot: &Snapshot, hooks: &Hooks, max_height: i32) -> Built {
@@ -63,20 +92,36 @@ pub fn build(snapshot: &Snapshot, hooks: &Hooks, max_height: i32) -> Built {
     body.append(&ui::section("Quota Alerts"));
     let alerts = ui::card();
     for (index, (title, subtitle, _)) in ALERTS.iter().enumerate() {
-        alerts.append(&alert_row(title, subtitle, snapshot.alerts[index], index, &hooks.on_alert));
+        alerts.append(&alert_row(
+            title,
+            subtitle,
+            snapshot.alerts[index],
+            index,
+            &hooks.on_alert,
+        ));
     }
     body.append(&alerts);
 
     body.append(&ui::section("Usage"));
     let usage = ui::card();
-    usage.append(&choice_row("Show Usage As", &["Used", "Left"], if snapshot.used { 0 } else { 1 }, {
-        let on_meter = hooks.on_meter.clone();
-        Rc::new(move |index| on_meter(index == 0))
-    }));
-    usage.append(&choice_row("Reset Times", &["Countdown", "Exact Time"], if snapshot.absolute { 1 } else { 0 }, {
-        let on_reset = hooks.on_reset.clone();
-        Rc::new(move |index| on_reset(index == 1))
-    }));
+    usage.append(&choice_row(
+        "Show Usage As",
+        &["Used", "Left"],
+        if snapshot.used { 0 } else { 1 },
+        {
+            let on_meter = hooks.on_meter.clone();
+            Rc::new(move |index| on_meter(index == 0))
+        },
+    ));
+    usage.append(&choice_row(
+        "Reset Times",
+        &["Countdown", "Exact Time"],
+        if snapshot.absolute { 1 } else { 0 },
+        {
+            let on_reset = hooks.on_reset.clone();
+            Rc::new(move |index| on_reset(index == 1))
+        },
+    ));
     body.append(&usage);
 
     body.append(&ui::section("Menu Bar Shows"));
@@ -91,10 +136,22 @@ pub fn build(snapshot: &Snapshot, hooks: &Hooks, max_height: i32) -> Built {
     note.set_margin_start(4);
     body.append(&note);
 
-    ui::page(&ui::nav_title("Settings"), &hooks.on_back, &body, None, max_height)
+    ui::page(
+        &ui::nav_title("Settings"),
+        &hooks.on_back,
+        &body,
+        None,
+        max_height,
+    )
 }
 
-fn alert_row(title: &str, subtitle: &str, on: bool, index: usize, on_alert: &Rc<dyn Fn(usize, bool)>) -> gtk4::Box {
+fn alert_row(
+    title: &str,
+    subtitle: &str,
+    on: bool,
+    index: usize,
+    on_alert: &Rc<dyn Fn(usize, bool)>,
+) -> gtk4::Box {
     let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     row.add_css_class("fact");
     let text = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
@@ -111,7 +168,12 @@ fn alert_row(title: &str, subtitle: &str, on: bool, index: usize, on_alert: &Rc<
     row
 }
 
-fn choice_row(title: &str, labels: &[&str], selected: usize, on_select: Rc<dyn Fn(usize)>) -> gtk4::Box {
+fn choice_row(
+    title: &str,
+    labels: &[&str],
+    selected: usize,
+    on_select: Rc<dyn Fn(usize)>,
+) -> gtk4::Box {
     let row = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
     row.add_css_class("fact");
     row.append(&ui::text(title, &["title-quiet"]));

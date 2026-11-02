@@ -76,27 +76,46 @@ fn providers(hooks: &Hooks, page: &mut gtk4::Box) {
         card.append(&button);
     }
     let on_hub = hooks.on_hub.clone();
-    card.append(&ui::row_button("Connect a CLIProxyAPI Hub", "row-btn", Rc::new(move || on_hub())));
+    card.append(&ui::row_button(
+        "Connect a CLIProxyAPI Hub",
+        "row-btn",
+        Rc::new(move || on_hub()),
+    ));
     page.append(&card);
 }
 
 fn copilot(hooks: &Hooks, page: &mut gtk4::Box) {
-    page.append(&note("Sign in to your own seat, or add your organization's billing with a token."));
+    page.append(&note(
+        "Sign in to your own seat, or add your organization's billing with a token.",
+    ));
     let card = ui::card();
-    card.append(&ui::row_button("Sign In with GitHub", "row-btn", hooks.on_personal.clone()));
-    card.append(&ui::row_button("Organization Billing", "row-btn", hooks.on_organization.clone()));
+    card.append(&ui::row_button(
+        "Sign In with GitHub",
+        "row-btn",
+        hooks.on_personal.clone(),
+    ));
+    card.append(&ui::row_button(
+        "Organization Billing",
+        "row-btn",
+        hooks.on_organization.clone(),
+    ));
     page.append(&card);
 }
 
 fn organization(flow: &AddFlow, hooks: &Hooks, page: &mut gtk4::Box) {
-    page.append(&note("Enter your organization and a token that can read its billing."));
+    page.append(&note(
+        "Enter your organization and a token that can read its billing.",
+    ));
     let org = ui::entry("Organization", false, &flow.org);
     let on_org = hooks.on_org.clone();
     org.connect_changed(move |entry| on_org(entry.text().to_string()));
     let on_continue = hooks.on_org_continue.clone();
     org.connect_activate(move |_| on_continue());
     page.append(&org);
-    page.append(&link_button("Create a Token", "https://github.com/settings/personal-access-tokens/new"));
+    page.append(&link_button(
+        "Create a Token",
+        "https://github.com/settings/personal-access-tokens/new",
+    ));
     let copy = ui::text(
         "Shows your organization's Copilot credits and spend. Use a token from an organization owner or billing manager.",
         &["caption", "secondary"],
@@ -134,9 +153,15 @@ fn hub(flow: &AddFlow, hooks: &Hooks, page: &mut gtk4::Box) {
     if let Some(error) = &flow.error {
         page.append(&error_label(error));
     }
-    let label = if flow.working { "Connecting…" } else { "Connect" };
+    let label = if flow.working {
+        "Connecting…"
+    } else {
+        "Connect"
+    };
     let connect = ui::button(label, "primary", hooks.on_hub_connect.clone());
-    connect.set_sensitive(!flow.hub_url.trim().is_empty() && !flow.hub_key.trim().is_empty() && !flow.working);
+    connect.set_sensitive(
+        !flow.hub_url.trim().is_empty() && !flow.hub_key.trim().is_empty() && !flow.working,
+    );
     page.append(&connect);
 }
 
@@ -167,7 +192,10 @@ fn sign_in(flow: &AddFlow, hooks: &Hooks, page: &mut gtk4::Box) {
             page.append(&row);
             page.append(&note("Waiting for the provider to confirm…"));
         }
-        LoginPrompt::Browser { accepts_pasted_code, .. } => {
+        LoginPrompt::Browser {
+            accepts_pasted_code,
+            ..
+        } => {
             if *accepts_pasted_code {
                 page.append(&paste_entry("Paste code", false, flow, hooks));
                 page.append(&note("Paste the code here if your browser shows one."));
@@ -183,9 +211,16 @@ fn sign_in(flow: &AddFlow, hooks: &Hooks, page: &mut gtk4::Box) {
             if let Some(page_url) = key_page {
                 page.append(&link_button("Get Your API Key", page_url));
             } else if label.to_ascii_lowercase().contains("organization") {
-                page.append(&link_button("Create a Token", "https://github.com/settings/personal-access-tokens/new"));
+                page.append(&link_button(
+                    "Create a Token",
+                    "https://github.com/settings/personal-access-tokens/new",
+                ));
             }
-            let caption = if flow.submitted { "Signing in…" } else { "Add Account" };
+            let caption = if flow.submitted {
+                "Signing in…"
+            } else {
+                "Add Account"
+            };
             let add = ui::button(caption, "primary", hooks.on_submit.clone());
             add.set_sensitive(!flow.draft.trim().is_empty() && !flow.submitted);
             page.append(&add);
@@ -204,7 +239,11 @@ fn browser_buttons(flow: &AddFlow, hooks: &Hooks, page: &mut gtk4::Box) {
     } else {
         "Continue"
     };
-    let action = if flow.draft.trim().is_empty() { hooks.on_open.clone() } else { hooks.on_submit.clone() };
+    let action = if flow.draft.trim().is_empty() {
+        hooks.on_open.clone()
+    } else {
+        hooks.on_submit.clone()
+    };
     let button = ui::button(primary, "primary", action);
     button.set_sensitive(!flow.submitted);
     row.append(&button);
@@ -226,9 +265,15 @@ fn paste_entry(placeholder: &str, secret: bool, flow: &AddFlow, hooks: &Hooks) -
 
 fn prompt_message(prompt: &LoginPrompt) -> String {
     match prompt {
-        LoginPrompt::DeviceCode { .. } => "Open the verification page in your browser and enter this code.".into(),
-        LoginPrompt::BrowserToken { .. } => "Continue in your browser, then paste the token it shows here.".into(),
-        LoginPrompt::Browser { .. } => "Continue in your browser. This sheet closes when you're signed in.".into(),
+        LoginPrompt::DeviceCode { .. } => {
+            "Open the verification page in your browser and enter this code.".into()
+        }
+        LoginPrompt::BrowserToken { .. } => {
+            "Continue in your browser, then paste the token it shows here.".into()
+        }
+        LoginPrompt::Browser { .. } => {
+            "Continue in your browser. This sheet closes when you're signed in.".into()
+        }
         LoginPrompt::Secret { .. } => "Enter the key. It's stored in your keyring.".into(),
     }
 }

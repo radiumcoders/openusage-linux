@@ -11,7 +11,9 @@ pub enum ProviderError {
     ConnectionFailed,
     InvalidResponse,
     RequestFailed(u16),
-    RateLimited { retry_after_seconds: Option<f64> },
+    RateLimited {
+        retry_after_seconds: Option<f64>,
+    },
     /// The message is shown as is.
     Unavailable(String),
     /// The provider refused an API key or token; the message names it ("OpenRouter rejected the API key.").
@@ -35,11 +37,15 @@ impl ProviderError {
     pub fn is_rate_limit(response: &HttpResponse) -> bool {
         response.status == 429
             || (response.status == 403
-                && (response.header("x-ratelimit-remaining") == Some("0") || response.header("retry-after").is_some()))
+                && (response.header("x-ratelimit-remaining") == Some("0")
+                    || response.header("retry-after").is_some()))
     }
 
     /// Fails the read unless the response is a 2xx: an auth failure is an expired sign-in.
-    pub fn require_success(response: &HttpResponse, kind: ProviderKind) -> Result<(), ProviderError> {
+    pub fn require_success(
+        response: &HttpResponse,
+        kind: ProviderKind,
+    ) -> Result<(), ProviderError> {
         if Self::is_auth_failure(response) {
             return Err(Self::SignInExpired(kind));
         }
@@ -51,7 +57,9 @@ impl ProviderError {
 
     pub fn failed(response: &HttpResponse) -> ProviderError {
         if Self::is_rate_limit(response) {
-            ProviderError::RateLimited { retry_after_seconds: response.retry_after_seconds() }
+            ProviderError::RateLimited {
+                retry_after_seconds: response.retry_after_seconds(),
+            }
         } else {
             ProviderError::RequestFailed(response.status)
         }
@@ -114,10 +122,17 @@ impl fmt::Display for LoginError {
             Self::InvalidResponse => f.write_str("The sign-in response was invalid."),
             Self::RequestFailed(status) => write!(f, "Sign-in failed with HTTP {status}."),
             Self::InvalidState => f.write_str("Sign-in state did not match. Try again."),
-            Self::InvalidCode => f.write_str("That code isn't valid. Paste the whole code and try again."),
+            Self::InvalidCode => {
+                f.write_str("That code isn't valid. Paste the whole code and try again.")
+            }
             Self::InvalidCallback => f.write_str("The browser sign-in callback was invalid."),
-            Self::AuthorizationFailed(reason) => write!(f, "Sign-in was not authorized ({reason})."),
-            Self::ListenerFailed(reason) => write!(f, "OpenUsage couldn't listen for the sign-in callback ({reason})."),
+            Self::AuthorizationFailed(reason) => {
+                write!(f, "Sign-in was not authorized ({reason}).")
+            }
+            Self::ListenerFailed(reason) => write!(
+                f,
+                "OpenUsage couldn't listen for the sign-in callback ({reason})."
+            ),
             Self::Expired => f.write_str("The sign-in code expired. Try again."),
             Self::Failed(message) => f.write_str(message),
             Self::Provider(error) => write!(f, "{error}"),

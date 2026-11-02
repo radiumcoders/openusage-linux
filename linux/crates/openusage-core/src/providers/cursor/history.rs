@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::http::HttpClient;
 use crate::log;
-use crate::metric::{BreakdownModel, MetricKind, MetricLine, MetricValue, ProviderUsage, UsageBreakdown};
+use crate::metric::{
+    BreakdownModel, MetricKind, MetricLine, MetricValue, ProviderUsage, UsageBreakdown,
+};
 use crate::provider::FetchContext;
 
 use super::client;
@@ -85,7 +87,11 @@ impl Ledger {
     }
 }
 
-pub(crate) fn append_lines(ctx: &mut FetchContext<'_>, access_token: &str, usage: &mut ProviderUsage) {
+pub(crate) fn append_lines(
+    ctx: &mut FetchContext<'_>,
+    access_token: &str,
+    usage: &mut ProviderUsage,
+) {
     let now = ctx.now;
     let span = day_starts(30, now);
     let keys: Vec<i64> = span.iter().map(|day| day.timestamp()).collect();
@@ -124,7 +130,10 @@ pub(crate) fn append_lines(ctx: &mut FetchContext<'_>, access_token: &str, usage
                             .map(|(name, model)| {
                                 (
                                     name.clone(),
-                                    StoredModel { spend: model.spend, tokens: model.tokens },
+                                    StoredModel {
+                                        spend: model.spend,
+                                        tokens: model.tokens,
+                                    },
                                 )
                             })
                             .collect(),
@@ -151,8 +160,12 @@ pub(crate) fn append_lines(ctx: &mut FetchContext<'_>, access_token: &str, usage
                     MetricValue::labeled(tokens, MetricKind::Count, "tokens"),
                 ],
             ));
-            if let Some(breakdown) = UsageBreakdown::ranked(window_models(&keys, indexes, &ledger.days)) {
-                usage.breakdowns.insert(history_key(label).to_string(), breakdown);
+            if let Some(breakdown) =
+                UsageBreakdown::ranked(window_models(&keys, indexes, &ledger.days))
+            {
+                usage
+                    .breakdowns
+                    .insert(history_key(label).to_string(), breakdown);
             }
         }
     }
@@ -173,7 +186,9 @@ fn window_models(
 ) -> Vec<BreakdownModel> {
     let mut models: BTreeMap<String, (f64, f64)> = BTreeMap::new();
     for index in indexes {
-        let Some(day) = span.get(index).and_then(|key| days.get(key)) else { continue };
+        let Some(day) = span.get(index).and_then(|key| days.get(key)) else {
+            continue;
+        };
         for (name, model) in &day.models {
             let slot = models.entry(name.clone()).or_insert((0.0, 0.0));
             slot.0 += model.spend;

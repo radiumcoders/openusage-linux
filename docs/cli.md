@@ -118,4 +118,4 @@ doesn't report a balance, the `credits` resource is absent.
 
 Antigravity's `argonWeekly` is the separate Gemini 4 Argon weekly quota and is omitted when the account has none.
 Charts, colours, subtitles, badges, layout state, and spend periods (OpenRouter's today, week, and
-month) stay out of this output.
+month) stay out of this output. A metric hidden on the dashboard is still listed here.

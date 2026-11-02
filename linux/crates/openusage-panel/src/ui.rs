@@ -35,7 +35,11 @@ pub fn button(label: &str, class: &str, action: Rc<dyn Fn()>) -> gtk4::Button {
     button
 }
 
-pub fn nav_bar(title: &gtk4::Widget, on_back: &Rc<dyn Fn()>, trailing: Option<&gtk4::Widget>) -> gtk4::Box {
+pub fn nav_bar(
+    title: &gtk4::Widget,
+    on_back: &Rc<dyn Fn()>,
+    trailing: Option<&gtk4::Widget>,
+) -> gtk4::Box {
     let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     bar.add_css_class("nav");
     bar.set_margin_start(8);
@@ -99,7 +103,12 @@ pub fn page(
         root.append(&rule);
         root.append(footer);
     }
-    Built { root, scroll, updated: None, next: None }
+    Built {
+        root,
+        scroll,
+        updated: None,
+        next: None,
+    }
 }
 
 pub fn card() -> gtk4::Box {

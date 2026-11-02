@@ -1,18 +1,23 @@
-//! Reset clocks and the text a copied account reads as. Absolute times follow the Mac wording
+//! Reset clocks and breakdown figures. Absolute times follow the Mac wording
 //! ("Wed 4 PM", "3:05 PM", "Nov 20").
 
 use chrono::{DateTime, Datelike, Local, Timelike, Utc};
 
 use openusage_core::account::Account;
-use openusage_core::dashboard::DashboardAccount;
 use openusage_core::metric::{BreakdownModel, MetricKind, UsageBreakdown};
-use openusage_core::widget::{self, FormatStyle, Mark, WidgetData, IMMINENT};
+use openusage_core::widget::{self, FormatStyle, WidgetData, IMMINENT};
 
 const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 pub fn account_name(account: &Account) -> &str {
-    if account.label.is_empty() { account.kind.display_name() } else { account.label.as_str() }
+    if account.label.is_empty() {
+        account.kind.display_name()
+    } else {
+        account.label.as_str()
+    }
 }
 
 /// "3:05 PM" today, "Wed 4 PM" within a week, "Nov 20" after that.
@@ -36,7 +41,9 @@ pub fn exact_time(at: DateTime<Utc>, now: DateTime<Utc>) -> String {
 }
 
 fn clock(data: &WidgetData, now: DateTime<Utc>) -> Option<String> {
-    let at = data.resets_at.filter(|_| data.has_data && !data.is_fresh_session_window(now))?;
+    let at = data
+        .resets_at
+        .filter(|_| data.has_data && !data.is_fresh_session_window(now))?;
     let seconds = (at - now).num_milliseconds() as f64 / 1000.0;
     if seconds <= 0.0 {
         return Some(IMMINENT.into());
@@ -46,7 +53,11 @@ fn clock(data: &WidgetData, now: DateTime<Utc>) -> Option<String> {
 
 /// The short reset Priority shows: "1d 6h" or "Wed 4 PM".
 pub fn short_reset(data: &WidgetData, now: DateTime<Utc>, absolute: bool) -> Option<String> {
-    if absolute { clock(data, now) } else { data.reset_text(now) }
+    if absolute {
+        clock(data, now)
+    } else {
+        data.reset_text(now)
+    }
 }
 
 /// The reset under a bar: "Resets in 1d 6h" or "Resets Wed 4 PM".
@@ -61,33 +72,6 @@ pub fn bar_reset(data: &WidgetData, now: DateTime<Utc>, absolute: bool) -> Optio
     })
 }
 
-pub fn usage_text(account: &DashboardAccount, now: DateTime<Utc>, absolute: bool) -> String {
-    let mut lines = vec![account.account.full_name()];
-    if let Some(plan) = &account.plan {
-        lines.push(plan.clone());
-    }
-    for line in &account.lines {
-        let row = line.data.row(now);
-        match &row.mark {
-            Mark::Bar { value, .. } => {
-                let mut text = format!("{}: {value}", row.title);
-                if let Some(reset) = bar_reset(&line.data, now, absolute) {
-                    text.push_str(&format!(" · {reset}"));
-                }
-                lines.push(text);
-            }
-            Mark::Value { value, detail, .. } => {
-                let extra = detail.as_ref().map(|detail| format!(" · {detail}")).unwrap_or_default();
-                lines.push(format!("{}: {value}{extra}", row.title));
-            }
-        }
-    }
-    if let Some(problem) = &account.problem {
-        lines.push(problem.clone());
-    }
-    lines.join("\n")
-}
-
 pub struct ModelRow {
     pub name: String,
     pub figures: String,
@@ -98,7 +82,12 @@ pub fn model_rows(breakdown: &UsageBreakdown) -> Vec<ModelRow> {
     let shown = UsageBreakdown::SHOWN_MODELS;
     let mut rows: Vec<ModelRow> = breakdown.models.iter().take(shown).map(model_row).collect();
     if breakdown.models.len() > shown {
-        let mut other = BreakdownModel { name: "Other".into(), dollars: None, tokens: None, share: None };
+        let mut other = BreakdownModel {
+            name: "Other".into(),
+            dollars: None,
+            tokens: None,
+            share: None,
+        };
         for model in breakdown.models.iter().skip(shown) {
             add_opt(&mut other.dollars, model.dollars);
             add_opt(&mut other.tokens, model.tokens);
@@ -118,15 +107,28 @@ fn add_opt(slot: &mut Option<f64>, extra: Option<f64>) {
 fn model_row(model: &BreakdownModel) -> ModelRow {
     let mut parts = Vec::new();
     if let Some(dollars) = model.dollars {
-        parts.push(widget::format_number(dollars, MetricKind::Dollars, FormatStyle::Row));
+        parts.push(widget::format_number(
+            dollars,
+            MetricKind::Dollars,
+            FormatStyle::Row,
+        ));
     }
     if let Some(tokens) = model.tokens {
-        parts.push(format!("{} tokens", widget::format_number(tokens, MetricKind::Count, FormatStyle::Row)));
+        parts.push(format!(
+            "{} tokens",
+            widget::format_number(tokens, MetricKind::Count, FormatStyle::Row)
+        ));
     }
     if let Some(share) = model.share {
-        parts.push(format!("{}%", (share.clamp(0.0, 1.0) * 100.0).round() as i64));
+        parts.push(format!(
+            "{}%",
+            (share.clamp(0.0, 1.0) * 100.0).round() as i64
+        ));
     }
-    ModelRow { name: model.name.clone(), figures: parts.join(" · ") }
+    ModelRow {
+        name: model.name.clone(),
+        figures: parts.join(" · "),
+    }
 }
 
 #[cfg(test)]
@@ -135,7 +137,11 @@ mod tests {
     use chrono::TimeZone;
 
     fn local(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
-        Local.with_ymd_and_hms(year, month, day, hour, minute, 0).single().unwrap().with_timezone(&Utc)
+        Local
+            .with_ymd_and_hms(year, month, day, hour, minute, 0)
+            .single()
+            .unwrap()
+            .with_timezone(&Utc)
     }
 
     #[test]

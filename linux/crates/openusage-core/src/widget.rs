@@ -71,7 +71,11 @@ pub struct WidgetData {
 }
 
 pub fn clamp_percent(value: f64) -> f64 {
-    if value.is_finite() { value.clamp(0.0, 100.0) } else { 0.0 }
+    if value.is_finite() {
+        value.clamp(0.0, 100.0)
+    } else {
+        0.0
+    }
 }
 
 impl WidgetData {
@@ -108,11 +112,16 @@ impl WidgetData {
                 data.limit = Some(*limit);
                 data.period_duration_ms = *period_ms;
             }
-            Style::Values { value_word, shows_reset_expiries } => {
+            Style::Values {
+                value_word,
+                shows_reset_expiries,
+            } => {
                 data.unbounded_value_word = value_word.map(str::to_string);
                 data.shows_reset_expiries = *shows_reset_expiries;
             }
-            Style::DollarBalance { value_word } => data.unbounded_value_word = Some(value_word.to_string()),
+            Style::DollarBalance { value_word } => {
+                data.unbounded_value_word = Some(value_word.to_string())
+            }
             Style::Badge => data.kind = MetricKind::Count,
             Style::History => {}
         }
@@ -120,13 +129,28 @@ impl WidgetData {
     }
 
     /// The descriptor's reading in `snapshot`, or its sample marked as having no data.
-    pub fn resolve(descriptor: &Descriptor, snapshot: Option<&ProviderSnapshot>, mode: DisplayMode) -> Self {
+    pub fn resolve(
+        descriptor: &Descriptor,
+        snapshot: Option<&ProviderSnapshot>,
+        mode: DisplayMode,
+    ) -> Self {
         let line = snapshot.and_then(|snapshot| snapshot.line(descriptor.metric_label));
         let mut data = match line {
-            Some(MetricLine::Progress { used, limit, format, resets_at, period_duration_ms, .. }) => {
+            Some(MetricLine::Progress {
+                used,
+                limit,
+                format,
+                resets_at,
+                period_duration_ms,
+                ..
+            }) => {
                 let mut data = Self::sample(descriptor);
                 data.kind = format.metric_kind();
-                data.used = if *format == ProgressFormat::Percent { clamp_percent(*used) } else { *used };
+                data.used = if *format == ProgressFormat::Percent {
+                    clamp_percent(*used)
+                } else {
+                    *used
+                };
                 data.limit = Some(*limit);
                 data.resets_at = *resets_at;
                 data.period_duration_ms = *period_duration_ms;
@@ -134,7 +158,11 @@ impl WidgetData {
                 data.unbounded_value_word = None;
                 data
             }
-            Some(MetricLine::Values { values, expiries_at, .. }) => {
+            Some(MetricLine::Values {
+                values,
+                expiries_at,
+                ..
+            }) => {
                 let mut data = Self::sample(descriptor);
                 data.values = values.clone();
                 data.limit = None;
@@ -183,7 +211,9 @@ impl WidgetData {
     /// How full the bar is drawn.
     pub fn fraction(&self) -> f64 {
         match self.limit {
-            Some(limit) if limit > 0.0 => (self.rounded_at_display_precision(self.displayed_value()) / limit).clamp(0.0, 1.0),
+            Some(limit) if limit > 0.0 => {
+                (self.rounded_at_display_precision(self.displayed_value()) / limit).clamp(0.0, 1.0)
+            }
             _ => 0.0,
         }
     }
@@ -237,9 +267,11 @@ impl WidgetData {
     /// The compact figure the bar strip shows.
     pub fn menu_bar_value(&self) -> String {
         match self.limit {
-            Some(limit) if self.kind == MetricKind::Percent && limit > 0.0 => {
-                format_number(self.displayed_value() / limit * 100.0, MetricKind::Percent, FormatStyle::Tray)
-            }
+            Some(limit) if self.kind == MetricKind::Percent && limit > 0.0 => format_number(
+                self.displayed_value() / limit * 100.0,
+                MetricKind::Percent,
+                FormatStyle::Tray,
+            ),
             _ => format_number(self.displayed_value(), self.kind, FormatStyle::Tray),
         }
     }
@@ -253,11 +285,17 @@ impl WidgetData {
         }
         if self.values.len() == 1 && self.values[0].kind == MetricKind::Dollars {
             if let Some(word) = &self.unbounded_value_word {
-                return vec![format!("{} {word}", format_number(self.values[0].number, MetricKind::Dollars, FormatStyle::Row))];
+                return vec![format!(
+                    "{} {word}",
+                    format_number(self.values[0].number, MetricKind::Dollars, FormatStyle::Row)
+                )];
             }
         }
         if !self.values.is_empty() {
-            let has_dollars = self.values.iter().any(|value| value.kind == MetricKind::Dollars);
+            let has_dollars = self
+                .values
+                .iter()
+                .any(|value| value.kind == MetricKind::Dollars);
             return self
                 .values
                 .iter()
@@ -265,12 +303,17 @@ impl WidgetData {
                 .map(|value| format_value(value, FormatStyle::Row))
                 .collect();
         }
-        let word = self.unbounded_value_word.clone().unwrap_or_else(|| self.display_mode.word().to_string());
+        let word = self
+            .unbounded_value_word
+            .clone()
+            .unwrap_or_else(|| self.display_mode.word().to_string());
         vec![format!("{} {word}", self.value_text())]
     }
 
     pub fn expiry_severity(&self, now: DateTime<Utc>) -> Severity {
-        let Some(soonest) = self.expiries_at.iter().min().filter(|_| self.has_data) else { return Severity::Normal };
+        let Some(soonest) = self.expiries_at.iter().min().filter(|_| self.has_data) else {
+            return Severity::Normal;
+        };
         let seconds = (*soonest - now).num_seconds();
         if seconds <= 48 * 3600 {
             Severity::Critical
@@ -301,7 +344,11 @@ impl WidgetData {
 
     pub fn meter_state(&self, now: DateTime<Utc>) -> MeterState {
         let Some(limit) = self.limit.filter(|limit| self.has_data && *limit > 0.0) else {
-            return if self.has_data { MeterState::Unpaced } else { MeterState::NoData };
+            return if self.has_data {
+                MeterState::Unpaced
+            } else {
+                MeterState::NoData
+            };
         };
         if self.rounded_at_display_precision(limit - self.used) <= 0.0 {
             return MeterState::Spent;
@@ -310,7 +357,11 @@ impl WidgetData {
             None => MeterState::Unpaced,
             Some((PaceStatus::Ahead, _)) => MeterState::Healthy,
             Some((PaceStatus::OnTrack, projected)) => {
-                if ((1.0 - projected) * 100.0).round() >= 1.0 { MeterState::CloseToLimit } else { MeterState::RunningOut }
+                if ((1.0 - projected) * 100.0).round() >= 1.0 {
+                    MeterState::CloseToLimit
+                } else {
+                    MeterState::RunningOut
+                }
             }
             Some((PaceStatus::Behind, _)) => MeterState::RunningOut,
         }
@@ -326,7 +377,9 @@ impl WidgetData {
         Some(match status {
             PaceStatus::Ahead => format!("~{}% left at reset", percent(1.0 - projected)),
             PaceStatus::OnTrack => format!("~{}% used at reset", percent(projected)),
-            PaceStatus::Behind => format!("~{}% over limit at reset", percent(projected - 1.0).max(1)),
+            PaceStatus::Behind => {
+                format!("~{}% over limit at reset", percent(projected - 1.0).max(1))
+            }
         })
     }
 
@@ -336,10 +389,16 @@ impl WidgetData {
             return None;
         }
         let (_, resets_at, period) = self.pace_context()?;
-        let elapsed = (now - (resets_at - Duration::milliseconds((period * 1000.0) as i64))).num_milliseconds() as f64 / 1000.0;
+        let elapsed = (now - (resets_at - Duration::milliseconds((period * 1000.0) as i64)))
+            .num_milliseconds() as f64
+            / 1000.0;
         (elapsed > 0.0 && now < resets_at).then(|| {
             let share = (elapsed / period).clamp(0.0, 1.0);
-            if self.display_mode == DisplayMode::Remaining { 1.0 - share } else { share }
+            if self.display_mode == DisplayMode::Remaining {
+                1.0 - share
+            } else {
+                share
+            }
         })
     }
 
@@ -351,19 +410,25 @@ impl WidgetData {
     }
 
     pub fn is_fresh_session_window(&self, now: DateTime<Utc>) -> bool {
-        let Some(signal) = self.session_start else { return false };
+        let Some(signal) = self.session_start else {
+            return false;
+        };
         if !self.has_data || self.limit.is_none() || self.used > 0.0 {
             return false;
         }
         match signal {
-            SessionStartSignal::ZeroUsage => self.resets_at.is_some_and(|resets_at| now < resets_at),
+            SessionStartSignal::ZeroUsage => {
+                self.resets_at.is_some_and(|resets_at| now < resets_at)
+            }
             SessionStartSignal::MissingResetDate => self.resets_at.is_none(),
         }
     }
 
     /// "1d 6h" until the reset, "soon" within five minutes, nil for a fresh window.
     pub fn reset_text(&self, now: DateTime<Utc>) -> Option<String> {
-        let resets_at = self.resets_at.filter(|_| self.has_data && !self.is_fresh_session_window(now))?;
+        let resets_at = self
+            .resets_at
+            .filter(|_| self.has_data && !self.is_fresh_session_window(now))?;
         let seconds = (resets_at - now).num_milliseconds() as f64 / 1000.0;
         if seconds <= 0.0 {
             return Some(IMMINENT.into());
@@ -378,7 +443,11 @@ impl WidgetData {
             let detail = (figures.len() > 1).then(|| figures[1..].join(" · "));
             return Row {
                 title: self.title.clone(),
-                mark: Mark::Value { value: figures[0].clone(), detail, severity: self.expiry_severity(now) },
+                mark: Mark::Value {
+                    value: figures[0].clone(),
+                    detail,
+                    severity: self.expiry_severity(now),
+                },
                 pace: None,
             };
         }
@@ -388,7 +457,13 @@ impl WidgetData {
                 fill: self.fraction(),
                 severity: self.severity(),
                 value: self.amount_text(),
-                reset: self.reset_text(now).map(|text| if text == IMMINENT { "Resets soon".into() } else { format!("Resets in {text}") }),
+                reset: self.reset_text(now).map(|text| {
+                    if text == IMMINENT {
+                        "Resets soon".into()
+                    } else {
+                        format!("Resets in {text}")
+                    }
+                }),
                 used_up: self.meter_state(now) == MeterState::Spent,
                 marker: self.pace_marker(now),
             },
@@ -399,8 +474,19 @@ impl WidgetData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mark {
-    Bar { fill: f64, severity: Severity, value: String, reset: Option<String>, used_up: bool, marker: Option<f64> },
-    Value { value: String, detail: Option<String>, severity: Severity },
+    Bar {
+        fill: f64,
+        severity: Severity,
+        value: String,
+        reset: Option<String>,
+        used_up: bool,
+        marker: Option<f64>,
+    },
+    Value {
+        value: String,
+        detail: Option<String>,
+        severity: Severity,
+    },
 }
 
 /// One dashboard row: "Weekly  ~22% left at reset / [bar] / 36% left  Resets in 1d 6h".
@@ -411,7 +497,13 @@ pub struct Row {
     pub pace: Option<String>,
 }
 
-fn evaluate_pace(used: f64, limit: f64, resets_at: DateTime<Utc>, period: f64, now: DateTime<Utc>) -> Option<(PaceStatus, f64)> {
+fn evaluate_pace(
+    used: f64,
+    limit: f64,
+    resets_at: DateTime<Utc>,
+    period: f64,
+    now: DateTime<Utc>,
+) -> Option<(PaceStatus, f64)> {
     if limit <= 0.0 || period <= 0.0 || used <= 0.0 {
         return None;
     }
@@ -456,9 +548,15 @@ fn group_thousands(whole: u64) -> String {
 fn fixed(value: f64, decimals: usize) -> String {
     let negative = value < 0.0;
     let text = format!("{:.*}", decimals, value.abs());
-    let (whole, fraction) = text.split_once('.').map_or((text.as_str(), None), |(w, f)| (w, Some(f)));
+    let (whole, fraction) = text
+        .split_once('.')
+        .map_or((text.as_str(), None), |(w, f)| (w, Some(f)));
     let grouped = group_thousands(whole.parse().unwrap_or(0));
-    let sign = if negative && text.trim_matches(['0', '.']) != "" { "-" } else { "" };
+    let sign = if negative && text.trim_matches(['0', '.']) != "" {
+        "-"
+    } else {
+        ""
+    };
     match fraction {
         Some(fraction) => format!("{sign}{grouped}.{fraction}"),
         None => format!("{sign}{grouped}"),
@@ -468,7 +566,11 @@ fn fixed(value: f64, decimals: usize) -> String {
 /// Up to one fraction digit, dropped when zero ("1.5", "2").
 fn up_to_one(value: f64) -> String {
     let rounded = (value * 10.0).round() / 10.0;
-    if rounded.fract() == 0.0 { fixed(rounded, 0) } else { fixed(rounded, 1) }
+    if rounded.fract() == 0.0 {
+        fixed(rounded, 0)
+    } else {
+        fixed(rounded, 1)
+    }
 }
 
 /// "1.2K", "3.4M", "5B", "1.2T" with up to one fraction digit.
@@ -495,18 +597,30 @@ pub fn format_number(value: f64, kind: MetricKind, style: FormatStyle) -> String
             }
             match style {
                 FormatStyle::Tray => {
-                    let digits = if value != 0.0 && value.abs() < 1.0 { 2 } else { 0 };
+                    let digits = if value != 0.0 && value.abs() < 1.0 {
+                        2
+                    } else {
+                        0
+                    };
                     format!("${}", fixed(value, digits))
                 }
                 FormatStyle::Row => {
                     let whole = ((value * 100.0).round() % 100.0) == 0.0;
                     let text = fixed(value.abs(), if whole { 0 } else { 2 });
-                    if value < 0.0 { format!("-${text}") } else { format!("${text}") }
+                    if value < 0.0 {
+                        format!("-${text}")
+                    } else {
+                        format!("${text}")
+                    }
                 }
             }
         }
         MetricKind::Count => {
-            if value.abs() >= 1000.0 { compact(value) } else { up_to_one(value) }
+            if value.abs() >= 1000.0 {
+                compact(value)
+            } else {
+                up_to_one(value)
+            }
         }
     }
 }
@@ -531,7 +645,11 @@ pub fn compact_duration(seconds: f64) -> Option<String> {
     Some(if days > 0 {
         format!("{days}d {hours}h")
     } else if hours > 0 {
-        if minutes > 0 { format!("{hours}h {minutes}m") } else { format!("{hours}h") }
+        if minutes > 0 {
+            format!("{hours}h {minutes}m")
+        } else {
+            format!("{hours}h")
+        }
     } else {
         format!("{minutes}m")
     })
@@ -565,12 +683,27 @@ mod tests {
     fn a_weekly_bar_reads_like_the_mac_dashboard() {
         let now = Utc::now();
         let account = Account::new(ProviderKind::Claude, "Work", None);
-        let weekly = descriptors(&account).into_iter().find(|d| d.key == "weekly").unwrap();
+        let weekly = descriptors(&account)
+            .into_iter()
+            .find(|d| d.key == "weekly")
+            .unwrap();
         let resets = now + Duration::hours(30);
         let line = MetricLine::percent("Weekly", 64.0, Some(resets), Some(7 * 24 * 3600 * 1000));
-        let data = WidgetData::resolve(&weekly, Some(&snapshot(vec![line], now)), DisplayMode::Remaining);
+        let data = WidgetData::resolve(
+            &weekly,
+            Some(&snapshot(vec![line], now)),
+            DisplayMode::Remaining,
+        );
         let row = data.row(now);
-        let Mark::Bar { value, reset, severity, .. } = row.mark else { panic!("expected a bar") };
+        let Mark::Bar {
+            value,
+            reset,
+            severity,
+            ..
+        } = row.mark
+        else {
+            panic!("expected a bar")
+        };
         assert_eq!(value, "36% left");
         assert_eq!(reset.as_deref(), Some("Resets in 1d 6h"));
         assert_eq!(severity, Severity::Normal);
@@ -579,12 +712,30 @@ mod tests {
 
     #[test]
     fn formats_match_metric_formatter() {
-        assert_eq!(format_number(7121.12, MetricKind::Dollars, FormatStyle::Row), "$7.1K");
-        assert_eq!(format_number(49.85, MetricKind::Dollars, FormatStyle::Row), "$49.85");
-        assert_eq!(format_number(12.0, MetricKind::Dollars, FormatStyle::Row), "$12");
-        assert_eq!(format_number(0.5, MetricKind::Dollars, FormatStyle::Tray), "$0.50");
-        assert_eq!(format_number(35_800_000.0, MetricKind::Count, FormatStyle::Row), "35.8M");
-        assert_eq!(format_number(738_500.0, MetricKind::Count, FormatStyle::Row), "738.5K");
+        assert_eq!(
+            format_number(7121.12, MetricKind::Dollars, FormatStyle::Row),
+            "$7.1K"
+        );
+        assert_eq!(
+            format_number(49.85, MetricKind::Dollars, FormatStyle::Row),
+            "$49.85"
+        );
+        assert_eq!(
+            format_number(12.0, MetricKind::Dollars, FormatStyle::Row),
+            "$12"
+        );
+        assert_eq!(
+            format_number(0.5, MetricKind::Dollars, FormatStyle::Tray),
+            "$0.50"
+        );
+        assert_eq!(
+            format_number(35_800_000.0, MetricKind::Count, FormatStyle::Row),
+            "35.8M"
+        );
+        assert_eq!(
+            format_number(738_500.0, MetricKind::Count, FormatStyle::Row),
+            "738.5K"
+        );
         assert_eq!(format_number(2.0, MetricKind::Count, FormatStyle::Row), "2");
         assert_eq!(compact_duration(3600.0 * 5.0), Some("5h".into()));
         assert_eq!(compact_duration(90.0), Some("2m".into()));
@@ -595,9 +746,16 @@ mod tests {
         let now = Utc::now();
         let account = Account::new(ProviderKind::Zai, "Z.ai", None);
         let session = descriptors(&account).into_iter().next().unwrap();
-        assert_eq!(WidgetData::resolve(&session, None, DisplayMode::Remaining).value_text(), NO_DATA_VALUE);
+        assert_eq!(
+            WidgetData::resolve(&session, None, DisplayMode::Remaining).value_text(),
+            NO_DATA_VALUE
+        );
         let line = MetricLine::percent("Session", 95.0, None, None);
-        let data = WidgetData::resolve(&session, Some(&snapshot(vec![line], now)), DisplayMode::Remaining);
+        let data = WidgetData::resolve(
+            &session,
+            Some(&snapshot(vec![line], now)),
+            DisplayMode::Remaining,
+        );
         assert_eq!(data.severity(), Severity::Critical);
         assert_eq!(data.menu_bar_value(), "5%");
     }

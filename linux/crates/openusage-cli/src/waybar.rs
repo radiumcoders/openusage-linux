@@ -13,6 +13,7 @@ use openusage_core::account::Account;
 use openusage_core::daemon::PidLock;
 use openusage_core::dashboard::{self, DashboardAccount};
 use openusage_core::engine::{self, AccountStatus, Engine};
+use openusage_core::layout::{self, LayoutState};
 use openusage_core::metric::ProviderSnapshot;
 use openusage_core::refresh::INTERVAL_SECONDS;
 use openusage_core::store::{Settings, SnapshotCache};
@@ -32,11 +33,13 @@ static STOP: AtomicBool = AtomicBool::new(false);
 
 pub fn run(once: bool, icon: &str) -> i32 {
     if once {
-        let accounts = Settings::open().accounts();
+        let settings = Settings::open();
+        let accounts = settings.accounts();
         let snapshots = SnapshotCache::open().load();
         let statuses = engine::load_statuses();
         let _ = emit_line(&render(
             &accounts,
+            &layout::load_for(&settings, &accounts),
             &snapshots,
             &statuses,
             icon,
@@ -140,6 +143,7 @@ fn cycle(engine: &mut Engine, quotas: &mut Notifier, icon: &str, force: bool) ->
 fn emit_view(engine: &Engine, icon: &str) -> bool {
     emit_line(&render(
         engine.accounts(),
+        &layout::load_for(&Settings::open(), engine.accounts()),
         engine.snapshots(),
         engine.statuses(),
         icon,
@@ -170,6 +174,7 @@ fn emit_line(line: &str) -> bool {
 
 fn render(
     accounts: &[Account],
+    layout: &LayoutState,
     snapshots: &BTreeMap<String, ProviderSnapshot>,
     statuses: &BTreeMap<String, AccountStatus>,
     icon: &str,
@@ -180,7 +185,7 @@ fn render(
     let absolute = options.absolute_resets;
     let limit = options.limit;
     let problems = engine::problem_map(accounts, snapshots, statuses, now);
-    let view = dashboard::accounts(accounts, snapshots, &problems, mode, now);
+    let view = dashboard::accounts(accounts, layout, snapshots, &problems, mode, now);
     let board = dashboard::PriorityBoard::make(&view, now);
     let badges = dashboard::badges(accounts);
     let (items, overflow) = dashboard::strip(&board, limit, &badges);
@@ -519,8 +524,10 @@ mod tests {
     fn waybar_json_matches_the_strip_classes_and_escapes_pango() {
         let now = Utc::now();
         let options = options();
+        let layout = LayoutState::default();
         let empty: Value = serde_json::from_str(&render(
             &[],
+            &layout,
             &BTreeMap::new(),
             &BTreeMap::new(),
             DEFAULT_ICON,
@@ -540,6 +547,7 @@ mod tests {
         snapshots.insert(calm.card_id(), weekly(&calm, 10.0, now, None));
         let quiet: Value = serde_json::from_str(&render(
             &[calm],
+            &layout,
             &snapshots,
             &BTreeMap::new(),
             "ICON",
@@ -576,6 +584,7 @@ mod tests {
         );
         let value: Value = serde_json::from_str(&render(
             std::slice::from_ref(&hot),
+            &layout,
             &snapshots,
             &statuses,
             "ICON",
@@ -595,5 +604,30 @@ mod tests {
         assert!(tooltip.contains("Claude · A&amp;B &lt;c&gt;"), "{tooltip}");
         assert!(tooltip.contains("a &lt;b&gt; &amp; c"), "{tooltip}");
         assert!(tooltip.contains('░'), "{tooltip}");
+    }
+
+    #[test]
+    fn a_hidden_metric_leaves_the_strip_and_the_tooltip() {
+        let now = Utc::now();
+        let hot = account("Work");
+        let mut snapshots = BTreeMap::new();
+        snapshots.insert(hot.card_id(), weekly(&hot, 95.0, now, None));
+        let mut layout = LayoutState::default();
+        assert!(layout.set_hidden(&format!("{}.weekly", hot.card_id()), true));
+        let value: Value = serde_json::from_str(&render(
+            std::slice::from_ref(&hot),
+            &layout,
+            &snapshots,
+            &BTreeMap::new(),
+            "ICON",
+            &options(),
+            now,
+        ))
+        .unwrap();
+        assert_eq!(value["text"], "ICON");
+        assert_eq!(value["percentage"], 0);
+        let tooltip = value["tooltip"].as_str().unwrap();
+        assert!(tooltip.contains("Claude"));
+        assert!(!tooltip.contains("Weekly"), "{tooltip}");
     }
 }

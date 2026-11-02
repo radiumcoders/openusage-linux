@@ -38,21 +38,31 @@ pub fn duplicate_message(
             continue;
         }
         if let Some(organization) = organization {
-            if account.organization.as_deref().is_none_or(|name| !name.eq_ignore_ascii_case(organization)) {
+            if account
+                .organization
+                .as_deref()
+                .is_none_or(|name| !name.eq_ignore_ascii_case(organization))
+            {
                 continue;
             }
         } else {
             if account.organization.is_some() {
                 continue;
             }
-            let Some(identity) = identity.as_deref() else { return Ok(()) };
+            let Some(identity) = identity.as_deref() else {
+                return Ok(());
+            };
             match vault.load(account.id) {
-                Ok(Some(existing)) if credential_identity(&existing).as_deref() == Some(identity) => {}
+                Ok(Some(existing))
+                    if credential_identity(&existing).as_deref() == Some(identity) => {}
                 Ok(_) => continue,
                 Err(error) => {
                     log::error(
                         "auth",
-                        &format!("{} could not check its keyring item for a duplicate sign-in: {error}", account.card_id()),
+                        &format!(
+                            "{} could not check its keyring item for a duplicate sign-in: {error}",
+                            account.card_id()
+                        ),
                     );
                     return Err(format!(
                         "OpenUsage couldn't check the saved sign-in for {}. Check Keychain access and try again.",
@@ -61,7 +71,10 @@ pub fn duplicate_message(
                 }
             }
         }
-        return Err(format!("This account is already added as {}.", account.label));
+        return Err(format!(
+            "This account is already added as {}.",
+            account.label
+        ));
     }
     Ok(())
 }
@@ -75,9 +88,18 @@ pub fn save_new(
     organization: Option<String>,
     credential: &Credential,
 ) -> Result<Account, String> {
-    duplicate_message(vault, &settings.accounts(), credential, kind, organization.as_deref(), None)?;
+    duplicate_message(
+        vault,
+        &settings.accounts(),
+        credential,
+        kind,
+        organization.as_deref(),
+        None,
+    )?;
     let account = Account::new(kind, label, organization);
-    vault.save(account.id, credential).map_err(|error| error.to_string())?;
+    vault
+        .save(account.id, credential)
+        .map_err(|error| error.to_string())?;
     let saved = account.clone();
     if let Err(error) = settings.update_accounts(|accounts| accounts.push(saved)) {
         let _ = vault.delete(account.id);
@@ -87,15 +109,29 @@ pub fn save_new(
 }
 
 /// Replaces the sign-in of an existing account. The id, name, and place stay.
-pub fn replace_sign_in(settings: &Settings, vault: &dyn Vault, id: Uuid, credential: &Credential) -> Result<(), String> {
+pub fn replace_sign_in(
+    settings: &Settings,
+    vault: &dyn Vault,
+    id: Uuid,
+    credential: &Credential,
+) -> Result<(), String> {
     let accounts = settings.accounts();
     let Some(account) = accounts.iter().find(|account| account.id == id) else {
         return Err("That account is no longer saved.".into());
     };
     let kind = account.kind;
     let organization = account.organization.clone();
-    duplicate_message(vault, &accounts, credential, kind, organization.as_deref(), Some(id))?;
-    vault.save(id, credential).map_err(|error| error.to_string())
+    duplicate_message(
+        vault,
+        &accounts,
+        credential,
+        kind,
+        organization.as_deref(),
+        Some(id),
+    )?;
+    vault
+        .save(id, credential)
+        .map_err(|error| error.to_string())
 }
 
 /// Deletes the keyring item, then the account. A keyring failure leaves the account in place.
@@ -120,7 +156,11 @@ pub fn rename_account(settings: &Settings, id: Uuid, label: &str) -> Result<(), 
             }
         })
         .map_err(|error| error.to_string())?;
-    if found { Ok(()) } else { Err("That account is no longer saved.".into()) }
+    if found {
+        Ok(())
+    } else {
+        Err("That account is no longer saved.".into())
+    }
 }
 
 #[cfg(test)]
@@ -143,12 +183,36 @@ mod tests {
         let key = "secret-key";
         let vault = MemoryVault::with(existing.id, Credential::ApiKey(key.into()));
         let again = Credential::ApiKey(key.into());
-        let error = duplicate_message(&vault, &[existing.clone()], &again, ProviderKind::OpenRouter, None, None).unwrap_err();
+        let error = duplicate_message(
+            &vault,
+            &[existing.clone()],
+            &again,
+            ProviderKind::OpenRouter,
+            None,
+            None,
+        )
+        .unwrap_err();
         assert_eq!(error, "This account is already added as Personal.");
         let other = Credential::ApiKey("different".into());
-        assert!(duplicate_message(&vault, &[existing.clone()], &other, ProviderKind::OpenRouter, None, None).is_ok());
+        assert!(duplicate_message(
+            &vault,
+            &[existing.clone()],
+            &other,
+            ProviderKind::OpenRouter,
+            None,
+            None
+        )
+        .is_ok());
         let id = existing.id;
-        assert!(duplicate_message(&vault, &[existing], &again, ProviderKind::OpenRouter, None, Some(id)).is_ok());
+        assert!(duplicate_message(
+            &vault,
+            &[existing],
+            &again,
+            ProviderKind::OpenRouter,
+            None,
+            Some(id)
+        )
+        .is_ok());
     }
 
     #[test]
@@ -156,7 +220,15 @@ mod tests {
         let existing = Account::new(ProviderKind::Claude, "Work", None);
         let vault = MemoryVault::default();
         let fresh = Credential::OAuth(OAuthTokens::new("token"));
-        assert!(duplicate_message(&vault, &[existing], &fresh, ProviderKind::Claude, None, None).is_ok());
+        assert!(duplicate_message(
+            &vault,
+            &[existing],
+            &fresh,
+            ProviderKind::Claude,
+            None,
+            None
+        )
+        .is_ok());
     }
 
     #[test]
@@ -181,8 +253,16 @@ mod tests {
             &Credential::ApiKey("one".into()),
         );
         assert!(duplicate.unwrap_err().contains("Personal"));
-        replace_sign_in(&settings, &vault, first.id, &Credential::ApiKey("two".into())).unwrap();
-        assert!(matches!(vault.load(first.id).unwrap(), Some(Credential::ApiKey(key)) if key == "two"));
+        replace_sign_in(
+            &settings,
+            &vault,
+            first.id,
+            &Credential::ApiKey("two".into()),
+        )
+        .unwrap();
+        assert!(
+            matches!(vault.load(first.id).unwrap(), Some(Credential::ApiKey(key)) if key == "two")
+        );
         assert_eq!(settings.accounts()[0].id, first.id);
         rename_account(&settings, first.id, "Work").unwrap();
         assert_eq!(settings.accounts()[0].label, "Work");

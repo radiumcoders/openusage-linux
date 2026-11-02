@@ -25,7 +25,9 @@ pub struct ProviderState {
 
 impl ProviderState {
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
-        self.values.get(key).and_then(|value| serde_json::from_value(value.clone()).ok())
+        self.values
+            .get(key)
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
     }
 
     pub fn set<T: Serialize>(&mut self, key: &str, value: &T) {
@@ -41,8 +43,18 @@ impl ProviderState {
 
     /// Whether a secondary read named `key` is due: never read, forced, or older than `interval`.
     /// Mirrors the Swift `SecondaryRead`.
-    pub fn is_due(&self, key: &str, interval_seconds: i64, now: DateTime<Utc>, force: bool) -> bool {
-        force || self.read_at.get(key).is_none_or(|at| now - *at >= Duration::seconds(interval_seconds))
+    pub fn is_due(
+        &self,
+        key: &str,
+        interval_seconds: i64,
+        now: DateTime<Utc>,
+        force: bool,
+    ) -> bool {
+        force
+            || self
+                .read_at
+                .get(key)
+                .is_none_or(|at| now - *at >= Duration::seconds(interval_seconds))
     }
 
     pub fn mark_read(&mut self, key: &str, now: DateTime<Utc>) {
@@ -64,13 +76,18 @@ pub struct FetchContext<'a> {
 impl FetchContext<'_> {
     /// The stored sign-in. A missing one is reported the way the Mac app does: a refused sign-in or key.
     pub fn credential(&self) -> Result<Credential, ProviderError> {
-        self.vault.load(self.account.id)?.ok_or_else(|| match self.account.auth_method() {
-            crate::kind::AuthMethod::OAuth => ProviderError::SignInExpired(self.account.kind),
-            crate::kind::AuthMethod::ApiKey { .. } => {
-                ProviderError::KeyRejected(format!("{} rejected the API key.", self.account.kind.display_name()))
-            }
-            crate::kind::AuthMethod::OrganizationToken => ProviderError::KeyRejected("GitHub rejected the token.".into()),
-        })
+        self.vault
+            .load(self.account.id)?
+            .ok_or_else(|| match self.account.auth_method() {
+                crate::kind::AuthMethod::OAuth => ProviderError::SignInExpired(self.account.kind),
+                crate::kind::AuthMethod::ApiKey { .. } => ProviderError::KeyRejected(format!(
+                    "{} rejected the API key.",
+                    self.account.kind.display_name()
+                )),
+                crate::kind::AuthMethod::OrganizationToken => {
+                    ProviderError::KeyRejected("GitHub rejected the token.".into())
+                }
+            })
     }
 
     pub fn api_key(&self) -> Result<String, ProviderError> {
@@ -110,5 +127,9 @@ pub enum LoginMethod {
 pub trait Login: Send + Sync {
     /// Runs the sign-in through `prompter` and returns the account's label and credential.
     /// API-key logins check the key with one read before returning it.
-    fn login(&self, prompter: &dyn LoginPrompter, http: &dyn HttpClient) -> Result<(String, Credential), LoginError>;
+    fn login(
+        &self,
+        prompter: &dyn LoginPrompter,
+        http: &dyn HttpClient,
+    ) -> Result<(String, Credential), LoginError>;
 }

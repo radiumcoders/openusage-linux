@@ -29,7 +29,12 @@ pub(super) struct CreditDay {
 /// the report named without a token total.
 #[cfg(test)]
 pub(super) fn counts(body: &[u8]) -> Option<BTreeMap<String, Option<f64>>> {
-    Some(counted(body)?.into_iter().map(|(date, day)| (date, day.tokens)).collect())
+    Some(
+        counted(body)?
+            .into_iter()
+            .map(|(date, day)| (date, day.tokens))
+            .collect(),
+    )
 }
 
 pub(super) fn counted(body: &[u8]) -> Option<BTreeMap<String, CountedDay>> {
@@ -52,7 +57,15 @@ pub(super) fn counted(body: &[u8]) -> Option<BTreeMap<String, CountedDay>> {
                 count(Some(value))?;
             }
         }
-        add_counted(&mut days, date, CountedDay { tokens, turns, models: count_models(&record) });
+        add_counted(
+            &mut days,
+            date,
+            CountedDay {
+                tokens,
+                turns,
+                models: count_models(&record),
+            },
+        );
     }
     Some(days)
 }
@@ -79,15 +92,23 @@ pub(super) fn workspace_models(body: &[u8]) -> Option<BTreeMap<String, CreditDay
         let mut models = BTreeMap::new();
         if let Some(entries) = record.get("models").and_then(Value::as_array) {
             for model in entries.iter().filter_map(Value::as_object) {
-                let Some(credits) = num(model.get("on_demand_credits")) else { continue };
-                let name = model.get("model").and_then(Value::as_str).unwrap_or("Unknown");
+                let Some(credits) = num(model.get("on_demand_credits")) else {
+                    continue;
+                };
+                let name = model
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Unknown");
                 *models.entry(name.to_string()).or_insert(0.0) += credits;
             }
         }
         add_credits(
             &mut days,
             date,
-            CreditDay { total: charged.values().sum(), models },
+            CreditDay {
+                total: charged.values().sum(),
+                models,
+            },
         );
     }
     Some(days)
@@ -110,7 +131,10 @@ pub(super) fn enterprise_models(body: &[u8]) -> Option<BTreeMap<String, CreditDa
         add_credits(
             &mut days,
             date,
-            CreditDay { total: models.values().sum(), models },
+            CreditDay {
+                total: models.values().sum(),
+                models,
+            },
         );
     }
     Some(days)
@@ -172,7 +196,10 @@ fn count_models(record: &Value) -> BTreeMap<String, CountModel> {
     let mut totals = BTreeMap::new();
     for model in models {
         let object = model.as_object().unwrap();
-        let name = object.get("model").and_then(Value::as_str).unwrap_or("Unknown");
+        let name = object
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("Unknown");
         let slot: &mut CountModel = totals.entry(name.to_string()).or_default();
         if let Some(turns) = count(object.get("turns")) {
             slot.turns += turns;

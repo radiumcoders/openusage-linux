@@ -65,7 +65,14 @@ pub(crate) fn check_credential(
     let account = Account::new(kind, kind.display_name(), None);
     let vault = MemoryVault::with(account.id, credential);
     let mut state = ProviderState::default();
-    let mut ctx = FetchContext { account: &account, http, vault: &vault, state: &mut state, now: chrono::Utc::now(), force: true };
+    let mut ctx = FetchContext {
+        account: &account,
+        http,
+        vault: &vault,
+        state: &mut state,
+        now: chrono::Utc::now(),
+        force: true,
+    };
     let usage = provider(kind).fetch(&mut ctx)?;
     Ok((usage, state))
 }
@@ -86,8 +93,15 @@ impl ApiKeyLogin {
             Some(AuthMethod::ApiKey { key_page }) => Some(key_page.to_string()),
             _ => None,
         };
-        prompter.show(&LoginPrompt::Secret { label: format!("{} API key", self.0.display_name()), key_page });
-        let key = prompter.read_line(true).ok_or(LoginError::Cancelled)?.trim().to_string();
+        prompter.show(&LoginPrompt::Secret {
+            label: format!("{} API key", self.0.display_name()),
+            key_page,
+        });
+        let key = prompter
+            .read_line(true)
+            .ok_or(LoginError::Cancelled)?
+            .trim()
+            .to_string();
         if key.is_empty() {
             return Err(LoginError::InvalidCode);
         }
@@ -100,7 +114,11 @@ impl ApiKeyLogin {
 }
 
 impl Login for ApiKeyLogin {
-    fn login(&self, prompter: &dyn LoginPrompter, http: &dyn HttpClient) -> Result<(String, Credential), LoginError> {
+    fn login(
+        &self,
+        prompter: &dyn LoginPrompter,
+        http: &dyn HttpClient,
+    ) -> Result<(String, Credential), LoginError> {
         let (key, _, _) = self.ask_and_check(prompter, http)?;
         Ok((self.0.display_name().to_string(), Credential::ApiKey(key)))
     }

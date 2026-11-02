@@ -37,11 +37,19 @@ pub struct MetricValue {
 
 impl MetricValue {
     pub fn new(number: f64, kind: MetricKind) -> Self {
-        Self { number, kind, label: None }
+        Self {
+            number,
+            kind,
+            label: None,
+        }
     }
 
     pub fn labeled(number: f64, kind: MetricKind, label: impl Into<String>) -> Self {
-        Self { number, kind, label: Some(label.into()) }
+        Self {
+            number,
+            kind,
+            label: Some(label.into()),
+        }
     }
 }
 
@@ -79,12 +87,19 @@ pub enum MetricLine {
 impl MetricLine {
     pub fn label(&self) -> &str {
         match self {
-            Self::Progress { label, .. } | Self::Values { label, .. } | Self::Badge { label, .. } => label,
+            Self::Progress { label, .. }
+            | Self::Values { label, .. }
+            | Self::Badge { label, .. } => label,
         }
     }
 
     /// `.percent(label, used, resetsAt:, periodMs:)` in the Swift code.
-    pub fn percent(label: impl Into<String>, used: f64, resets_at: Option<DateTime<Utc>>, period_ms: Option<i64>) -> Self {
+    pub fn percent(
+        label: impl Into<String>,
+        used: f64,
+        resets_at: Option<DateTime<Utc>>,
+        period_ms: Option<i64>,
+    ) -> Self {
         Self::Progress {
             label: label.into(),
             used,
@@ -96,7 +111,12 @@ impl MetricLine {
     }
 
     pub fn values(label: impl Into<String>, values: Vec<MetricValue>) -> Self {
-        Self::Values { label: label.into(), values, expiries_at: vec![], detail: None }
+        Self::Values {
+            label: label.into(),
+            values,
+            expiries_at: vec![],
+            detail: None,
+        }
     }
 }
 
@@ -140,9 +160,15 @@ impl UsageBreakdown {
     /// A figure is available only when some model reports it above zero. Dollars and tokens that were
     /// not reported are cleared so a zero-spend model is not treated as a cost.
     pub fn ranked(mut models: Vec<BreakdownModel>) -> Option<Self> {
-        let cost = models.iter().any(|model| model.dollars.is_some_and(|number| number > 0.0));
-        let tokens = models.iter().any(|model| model.tokens.is_some_and(|number| number > 0.0));
-        let share = models.iter().any(|model| model.share.is_some_and(|number| number > 0.0));
+        let cost = models
+            .iter()
+            .any(|model| model.dollars.is_some_and(|number| number > 0.0));
+        let tokens = models
+            .iter()
+            .any(|model| model.tokens.is_some_and(|number| number > 0.0));
+        let share = models
+            .iter()
+            .any(|model| model.share.is_some_and(|number| number > 0.0));
         let figure = if cost {
             0
         } else if tokens {
@@ -171,7 +197,9 @@ impl UsageBreakdown {
         models.sort_by(|left, right| {
             let left_number = number(left).unwrap_or(0.0);
             let right_number = number(right).unwrap_or(0.0);
-            right_number.total_cmp(&left_number).then_with(|| left.name.cmp(&right.name))
+            right_number
+                .total_cmp(&left_number)
+                .then_with(|| left.name.cmp(&right.name))
         });
         if models.is_empty() {
             return None;

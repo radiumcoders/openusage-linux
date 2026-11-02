@@ -21,7 +21,8 @@ impl PidLock {
 
     pub fn acquire_at(path: &Path) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|error| format!("Could not create the Waybar pid file: {error}"))?;
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("Could not create the Waybar pid file: {error}"))?;
         }
         let mut file = OpenOptions::new()
             .read(true)
@@ -36,19 +37,29 @@ impl PidLock {
                 Some(error) if error == libc::EWOULDBLOCK || error == libc::EAGAIN
             );
             if blocked {
-                let pid = fs::read_to_string(path).ok().and_then(|text| text.trim().parse::<i32>().ok());
+                let pid = fs::read_to_string(path)
+                    .ok()
+                    .and_then(|text| text.trim().parse::<i32>().ok());
                 return Err(match pid {
-                    Some(pid) if pid > 0 => format!("Waybar module is already running (pid {pid})."),
+                    Some(pid) if pid > 0 => {
+                        format!("Waybar module is already running (pid {pid}).")
+                    }
                     _ => "Waybar module is already running.".into(),
                 });
             }
-            return Err(format!("Could not lock the Waybar pid file: {}", std::io::Error::last_os_error()));
+            return Err(format!(
+                "Could not lock the Waybar pid file: {}",
+                std::io::Error::last_os_error()
+            ));
         }
         let text = format!("{}\n", std::process::id());
         file.set_len(0).ok();
         file.seek(std::io::SeekFrom::Start(0)).ok();
         file.write_all(text.as_bytes()).ok();
-        Ok(Self { file: Some(file), path: path.to_path_buf() })
+        Ok(Self {
+            file: Some(file),
+            path: path.to_path_buf(),
+        })
     }
 }
 
@@ -68,7 +79,9 @@ pub fn signal_running(signal: i32) -> bool {
 }
 
 pub fn signal_running_at(path: &Path, signal: i32) -> bool {
-    let Ok(file) = OpenOptions::new().read(true).write(true).open(path) else { return false };
+    let Ok(file) = OpenOptions::new().read(true).write(true).open(path) else {
+        return false;
+    };
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
         unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
         return false;
@@ -80,8 +93,12 @@ pub fn signal_running_at(path: &Path, signal: i32) -> bool {
     if !blocked {
         return false;
     }
-    let Ok(text) = fs::read_to_string(path) else { return false };
-    let Ok(pid) = text.trim().parse::<i32>() else { return false };
+    let Ok(text) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(pid) = text.trim().parse::<i32>() else {
+        return false;
+    };
     if pid <= 0 {
         return false;
     }
@@ -113,7 +130,10 @@ mod tests {
         drop(lock);
         assert!(!signal_running_at(&path, 0));
         fs::write(&path, "1\n").unwrap();
-        assert!(!signal_running_at(&path, 0), "an unlocked pid file is stale and must not be signaled");
+        assert!(
+            !signal_running_at(&path, 0),
+            "an unlocked pid file is stale and must not be signaled"
+        );
         let _ = fs::remove_dir_all(dir);
     }
 }

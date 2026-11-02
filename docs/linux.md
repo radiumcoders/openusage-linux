@@ -35,12 +35,20 @@ cargo build --release --manifest-path linux/Cargo.toml
 click runs that. The panel reads the same accounts, snapshots, and refresh status as the bar.
 
 The **⋯** menu opens **Accounts** and **Settings** (Return opens Accounts from the dashboard). Accounts
-lists every account in saved order. An account's page renames it, removes it, and offers **Sign In
-Again** when that account has a problem. **Add New Account** signs in from the panel: pick a provider,
+lists every account in the saved dashboard order. A hidden metric is left off the dashboard, the bar,
+and quota alerts. The limits JSON still includes it, as on the Mac.
+
+An account's page renames it, removes it, and offers **Sign In Again** when that account has a problem. **Add New Account** signs in from the panel: pick a provider,
 and for Copilot choose a personal seat or organization billing. A browser sign-in has **Open Browser**
 and a code field; a device code is shown large with **Copy** and **Open**; an API key is a hidden
-field with a link to the key page. **Needs Attention** uses **Fix** to open the account. Right-click an
-account header for refresh, copy, the provider's links, sign-in again, and remove. Settings stores the
+field with a link to the key page. **Needs Attention** uses **Fix** to open the account. Right-click a provider's card for
+**Refresh**, **Manage Accounts…**, **Share Screenshot**, and its links; right-click an account for
+**Refresh**, **Rename**, **Edit Account…**, **Share Screenshot**, and, for a Copilot organization,
+**Organization Billing**. **Share Screenshot** copies a branded image of the card to the clipboard.
+On All Usage, drag a provider by its header, an account by its name, or a metric by its row; on
+Accounts, drag an account by its handle. An account's page lists its metrics with a switch to hide
+each one everywhere and a handle to reorder it. **Ctrl+Z** undoes the last reorder or hide. The order
+and hidden metrics are saved under the Mac key `openusage.layout.v2`. Settings stores the
 Mac keys for quota alerts, how many limits the bar shows, used or left, and countdown or exact reset
 times. Clicking an amount or a reset on the dashboard flips the same two settings. A **Limit Resets** row has
 **Claim** when a reset can be used now (Claude and ChatGPT), and a history row shows its top models
@@ -96,8 +104,8 @@ running low, the module shows only an icon, as the Mac menu bar shows only the a
 
 | Field | Meaning |
 | --- | --- |
-| `text` | The same strip as the Mac menu bar: the limits closest to running out, or the icon when none is. |
-| `tooltip` | Pango markup of every account. |
+| `text` | The same strip as the Mac menu bar: the limits closest to running out, or the icon when none is. Hidden metrics are left out. |
+| `tooltip` | Pango markup of every account, without hidden metrics. |
 | `class` | `normal`, `warning`, or `critical`, plus `error` or `stale` when that is the state. No accounts is `empty`. |
 | `percentage` | The fullest limit, as a percent used. |
 | `alt` | The class names, for `{alt}`. |
@@ -124,7 +132,7 @@ is `openusage`, for sign-in. Launch one with that title, for example
 | `openusage` | Limits JSON for every account. Same output and exit codes as the [Mac command](cli.md): 0 printed, 2 bad arguments or no such account, 4 nothing fetched yet. |
 | `openusage <provider>` | Limits JSON for that provider. |
 | `openusage <account-id>` | Limits JSON for one account. The id is the one in the JSON (`codex@1a2b3c4d`). |
-| `openusage accounts` | List accounts and their ids. A mirrored CLIProxyAPI account includes its hub host. |
+| `openusage accounts` | List accounts and their ids, in dashboard order. A mirrored CLIProxyAPI account includes its hub host. |
 | `openusage hub list` | List connected CLIProxyAPI hubs. |
 | `openusage hub add <url>` | Connect a hub. The management key is read with echo off. |
 | `openusage hub remove <hub-id-or-host>` | Remove a hub, its key, and its mirrored accounts. |
@@ -152,8 +160,11 @@ is `openusage`, for sign-in. Launch one with that title, for example
 | Daemon pid | `$XDG_RUNTIME_DIR/openusage/daemon.pid` |
 
 `settings.plist` and the keyring service are the same as the previous Linux build, so accounts carry
-over. Snapshots are `snapshots.json`. An older `snapshots.plist` is not read; run `openusage refresh`
-once to fill the new cache.
+over. The dashboard layout is the `openusage.layout.v2` entry in that file: the same JSON the Mac app
+stores for account order, metric order, and hidden metrics. Linux reads and writes that entry and
+leaves every `openusage.layout.v1` key unchanged. It does not copy a 0.7.x layout onto a new account;
+the Mac app still does that when it opens. Snapshots are `snapshots.json`. An older `snapshots.plist`
+is not read; run `openusage refresh` once to fill the new cache.
 
 `status.json` is one object per account id. A missing id has no backoff. A successful refresh removes
 the entry. `retryAt` is UTC with milliseconds.
@@ -190,7 +201,7 @@ asked for, including when a refresh is forced. `class` includes `stale` once a s
 Quota alerts go out with `notify-send`. The three triggers match the Mac app: under 10% left
 (`under-10`), under 30% left (`under-30`), and a limit that may run out before it resets
 (`running-out`). All start off. Each alert is sent once per metric per reset window, and only by the
-running Waybar module. See [Notifications](settings.md#notifications).
+running Waybar module. A metric hidden in the layout never sends one. See [Notifications](settings.md#notifications).
 
 ## Proxy
 

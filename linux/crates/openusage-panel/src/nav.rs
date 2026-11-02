@@ -4,7 +4,6 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -19,7 +18,6 @@ use openusage_core::provider::LoginMethod;
 use openusage_core::store::Settings;
 use openusage_core::vault::SecretToolVault;
 
-use crate::format;
 use crate::menu::Act;
 use crate::model;
 use crate::prompter;
@@ -53,7 +51,12 @@ pub(crate) fn choose_provider(ctx: &Rc<Ctx>, kind: ProviderKind) {
     }
 }
 
-pub(crate) fn begin_signin(ctx: &Rc<Ctx>, kind: ProviderKind, method: LoginMethod, replace: Option<Uuid>) {
+pub(crate) fn begin_signin(
+    ctx: &Rc<Ctx>,
+    kind: ProviderKind,
+    method: LoginMethod,
+    replace: Option<Uuid>,
+) {
     if let Some(active) = ctx.signin.borrow().as_ref() {
         active.prompter.cancel();
     }
@@ -77,7 +80,11 @@ pub(crate) fn begin_signin(ctx: &Rc<Ctx>, kind: ProviderKind, method: LoginMetho
 }
 
 pub(crate) fn start_replace(ctx: &Rc<Ctx>, id: Uuid) {
-    let Some(account) = Settings::open().accounts().into_iter().find(|account| account.id == id) else {
+    let Some(account) = Settings::open()
+        .accounts()
+        .into_iter()
+        .find(|account| account.id == id)
+    else {
         return;
     };
     let method = match account.organization.clone() {
@@ -102,10 +109,14 @@ pub(crate) fn submit_prompt(ctx: &Rc<Ctx>) {
     let draft = ctx.add.borrow().draft.clone();
     {
         let signin = ctx.signin.borrow();
-        let Some(signin) = signin.as_ref() else { return };
+        let Some(signin) = signin.as_ref() else {
+            return;
+        };
         match prompt {
             Some(LoginPrompt::Browser { .. }) => signin.prompter.submit_paste(draft),
-            Some(LoginPrompt::BrowserToken { .. } | LoginPrompt::Secret { .. }) => signin.prompter.submit_secret(draft),
+            Some(LoginPrompt::BrowserToken { .. } | LoginPrompt::Secret { .. }) => {
+                signin.prompter.submit_secret(draft)
+            }
             _ => return,
         }
     }
@@ -187,7 +198,9 @@ pub(crate) fn copy_prompt(ctx: &Rc<Ctx>) {
 pub(crate) fn prompt_url(prompt: &LoginPrompt) -> Option<&str> {
     match prompt {
         LoginPrompt::Browser { url, .. } | LoginPrompt::BrowserToken { url } => Some(url.as_str()),
-        LoginPrompt::DeviceCode { verification_url, .. } => Some(verification_url.as_str()),
+        LoginPrompt::DeviceCode {
+            verification_url, ..
+        } => Some(verification_url.as_str()),
         LoginPrompt::Secret { .. } => None,
     }
 }
@@ -200,30 +213,23 @@ pub(crate) fn open_prompt(prompt: &LoginPrompt) {
 }
 
 pub(crate) fn menu_act(ctx: &Rc<Ctx>, index: usize, act: Act) {
-    let model = model::load();
-    let Some(account) = model.accounts.get(index) else { return };
+    let model = model::load_with(&crate::edit::ensure(ctx));
+    let Some(account) = model.accounts.get(index) else {
+        return;
+    };
     match act {
         Act::Info => {}
         Act::Refresh => window::refresh_now(ctx),
-        Act::Copy => {
-            ui::copy_text(&format::usage_text(account, model.now, model.absolute_resets));
-            *ctx.notice.borrow_mut() = Some("Copied to clipboard".into());
-            window::rebuild(ctx, false);
-            let ctx = ctx.clone();
-            gtk4::glib::timeout_add_local(Duration::from_millis(1600), move || {
-                *ctx.notice.borrow_mut() = None;
-                window::rebuild(&ctx, false);
-                gtk4::glib::ControlFlow::Break
-            });
-        }
-        Act::Open(url) => ui::open_uri(&url),
-        Act::SignIn => start_replace(ctx, account.account.id),
-        Act::Remove => {
+        Act::ManageAccounts => session::show_accounts(ctx),
+        Act::Rename => {
             let id = account.account.id;
-            ctx.confirm_remove.set(true);
-            *ctx.screen.borrow_mut() = Screen::Detail(id);
-            window::rebuild(ctx, true);
+            open_detail(ctx, id);
+            *ctx.renaming.borrow_mut() = Some(id);
+            window::rebuild(ctx, false);
         }
+        Act::EditAccount => open_detail(ctx, account.account.id),
+        Act::Share(ids) => crate::share::copy_accounts(ctx, &ids),
+        Act::Open(url) => ui::open_uri(&url),
     }
 }
 
@@ -255,7 +261,9 @@ pub(crate) fn remove_account(ctx: &Rc<Ctx>, id: Uuid) {
 }
 
 pub(crate) fn disconnect_hub(ctx: &Rc<Ctx>) {
-    let Some(id) = ctx.confirm_hub.borrow_mut().take() else { return };
+    let Some(id) = ctx.confirm_hub.borrow_mut().take() else {
+        return;
+    };
     let vault = SecretToolVault::default();
     match openusage_core::hub::disconnect(id, &vault, &Settings::open()) {
         Ok(()) => {
@@ -268,9 +276,17 @@ pub(crate) fn disconnect_hub(ctx: &Rc<Ctx>) {
 }
 
 pub(crate) fn run_claim(ctx: &Rc<Ctx>) {
-    let Some(id) = ctx.claim.borrow().account else { return };
+    let Some(id) = ctx.claim.borrow().account else {
+        return;
+    };
     let model = model::load();
-    let Some(account) = model.accounts.into_iter().find(|account| account.account.id == id) else { return };
+    let Some(account) = model
+        .accounts
+        .into_iter()
+        .find(|account| account.account.id == id)
+    else {
+        return;
+    };
     let card = account.account.card_id();
     let snapshot = model.snapshots.get(&card).cloned();
     let remembered = match &ctx.claim.borrow().phase {
@@ -291,7 +307,12 @@ fn spawn_claim(account: Account, expiring: Option<DateTime<Utc>>) -> ClaimJob {
     let done_flag = Arc::clone(&done);
     let slot = Arc::clone(&message);
     thread::spawn(move || {
-        let outcome = claims::claim(&account, &SecretToolVault::default(), &UreqClient::new(), expiring);
+        let outcome = claims::claim(
+            &account,
+            &SecretToolVault::default(),
+            &UreqClient::new(),
+            expiring,
+        );
         *slot.lock().expect("claim") = Some(outcome.message(Utc::now()));
         done_flag.store(true, Ordering::SeqCst);
     });

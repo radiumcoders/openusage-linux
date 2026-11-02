@@ -10,7 +10,9 @@ use serde_json::{Map, Value};
 
 use crate::http::{HttpClient, HttpRequest};
 use crate::log;
-use crate::metric::{BreakdownModel, MetricKind, MetricLine, MetricValue, ProviderUsage, UsageBreakdown};
+use crate::metric::{
+    BreakdownModel, MetricKind, MetricLine, MetricValue, ProviderUsage, UsageBreakdown,
+};
 use crate::provider::FetchContext;
 
 const HISTORY: &str = "history";
@@ -202,7 +204,9 @@ fn history_lines(
     ] {
         if let Some(line) = window_line(label, sum(ledger, today, first, last)) {
             lines.push(line);
-            if let Some(breakdown) = UsageBreakdown::ranked(model_window(ledger, today, first, last)) {
+            if let Some(breakdown) =
+                UsageBreakdown::ranked(model_window(ledger, today, first, last))
+            {
                 breakdowns.insert(key.to_string(), breakdown);
             }
         }
@@ -217,7 +221,9 @@ fn model_window(ledger: &Ledger, today: i64, first: i64, last: i64) -> Vec<Break
     let mut models: BTreeMap<String, StoredModel> = BTreeMap::new();
     for offset in first..=last {
         let day = today - offset * DAY;
-        let Some(stored) = ledger.days.iter().find(|stored| stored.day == day) else { continue };
+        let Some(stored) = ledger.days.iter().find(|stored| stored.day == day) else {
+            continue;
+        };
         for (name, model) in &stored.models {
             let slot = models.entry(name.clone()).or_default();
             add_optional(&mut slot.dollars, model.dollars);

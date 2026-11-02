@@ -5,8 +5,10 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 
+use openusage_core::account::Account;
 use openusage_core::dashboard::{self, DashboardAccount};
 use openusage_core::kind::ProviderKind;
+use openusage_core::layout::{self, LayoutState};
 use openusage_core::metric::ProviderSnapshot;
 use openusage_core::paths;
 use openusage_core::refresh::INTERVAL_SECONDS;
@@ -23,6 +25,9 @@ pub struct Model {
     pub now: DateTime<Utc>,
     pub absolute_resets: bool,
     pub snapshots: BTreeMap<String, ProviderSnapshot>,
+    pub layout: LayoutState,
+    /// Every metric of every account is hidden, so the dashboard points at Accounts.
+    pub all_metrics_hidden: bool,
 }
 
 pub struct Family {
@@ -32,15 +37,67 @@ pub struct Family {
 
 pub fn load() -> Model {
     let settings = Settings::open();
+    let stored = settings.accounts();
+    load_with(&layout::load_for(&settings, &stored))
+}
+
+pub fn load_with(layout: &LayoutState) -> Model {
+    let settings = Settings::open();
     let mode = display_mode(&settings);
     let absolute_resets = settings.string(RESET_KEY).as_deref() == Some("absolute");
     let stored = settings.accounts();
+    let mut layout = layout.clone();
+    // Screenshot hook only. A dump of the "every metric is hidden" sentence, without writing it.
+    if std::env::var("OPENUSAGE_HIDE_METRICS").ok().as_deref() == Some("1") {
+        for account in &stored {
+            for descriptor in layout.ordered_descriptors(account) {
+                layout.set_hidden(&descriptor.id, true);
+            }
+        }
+    }
     let snapshots = SnapshotCache::open().load();
     let now = Utc::now();
-    let refreshed_at = snapshots.values().map(|snapshot| snapshot.refreshed_at).max();
-    let accounts = dashboard::accounts(&stored, &snapshots, &account_problems(now), mode, now);
+    let refreshed_at = snapshots
+        .values()
+        .map(|snapshot| snapshot.refreshed_at)
+        .max();
+    let accounts = dashboard::accounts(
+        &stored,
+        &layout,
+        &snapshots,
+        &account_problems(now),
+        mode,
+        now,
+    );
+    let all_metrics_hidden = every_metric_hidden(&stored, &layout);
     let families = families_of(&accounts);
-    Model { accounts, families, refreshed_at, now, absolute_resets, snapshots }
+    Model {
+        accounts,
+        families,
+        refreshed_at,
+        now,
+        absolute_resets,
+        snapshots,
+        layout: layout.clone(),
+        all_metrics_hidden,
+    }
+}
+
+/// The account still has metrics, and every one of them is hidden.
+pub fn fully_hidden(account: &Account, layout: &LayoutState) -> bool {
+    let descriptors = layout.ordered_descriptors(account);
+    !descriptors.is_empty()
+        && descriptors
+            .iter()
+            .all(|descriptor| layout.is_hidden(&descriptor.id))
+}
+
+pub fn every_metric_hidden(accounts: &[Account], layout: &LayoutState) -> bool {
+    !accounts.is_empty()
+        && accounts
+            .iter()
+            .any(|account| !layout.ordered_descriptors(account).is_empty())
+        && accounts.iter().all(|account| fully_hidden(account, layout))
 }
 
 pub fn display_mode(settings: &Settings) -> DisplayMode {
@@ -84,10 +141,16 @@ fn families_of(accounts: &[DashboardAccount]) -> Vec<Family> {
     let mut families = Vec::new();
     for (index, account) in accounts.iter().enumerate() {
         let kind = account.account.kind;
-        if let Some(family) = families.iter_mut().find(|family: &&mut Family| family.kind == kind) {
+        if let Some(family) = families
+            .iter_mut()
+            .find(|family: &&mut Family| family.kind == kind)
+        {
             family.indexes.push(index);
         } else {
-            families.push(Family { kind, indexes: vec![index] });
+            families.push(Family {
+                kind,
+                indexes: vec![index],
+            });
         }
     }
     families
@@ -107,7 +170,9 @@ pub fn is_watched_file(name: &str) -> bool {
 }
 
 pub fn updated_text(at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> String {
-    let Some(at) = at else { return "Not updated yet".into() };
+    let Some(at) = at else {
+        return "Not updated yet".into();
+    };
     let seconds = (now - at).num_milliseconds() as f64 / 1000.0;
     if seconds < 45.0 {
         return "Updated just now".into();
@@ -122,7 +187,9 @@ pub fn next_text(at: Option<DateTime<Utc>>, now: DateTime<Utc>, refreshing: bool
     if refreshing {
         return "Refreshing…".into();
     }
-    let Some(at) = at else { return "Refresh".into() };
+    let Some(at) = at else {
+        return "Refresh".into();
+    };
     let remaining = (at + chrono::Duration::seconds(INTERVAL_SECONDS) - now).num_seconds();
     if remaining <= 0 {
         return "Update due".into();
@@ -147,7 +214,9 @@ pub fn shows_account_label(account: &DashboardAccount, siblings: usize) -> bool 
         return true;
     }
     let provider = account.account.kind.display_name();
-    !account.label_is_provider() && !account.account.label.is_empty() && account.account.label != provider
+    !account.label_is_provider()
+        && !account.account.label.is_empty()
+        && account.account.label != provider
 }
 
 trait LabelMatch {
@@ -157,5 +226,23 @@ trait LabelMatch {
 impl LabelMatch for DashboardAccount {
     fn label_is_provider(&self) -> bool {
         self.account.label == self.account.kind.display_name()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hiding_every_metric_is_the_empty_dashboard() {
+        let account = Account::new(ProviderKind::Claude, "Claude", None);
+        let mut layout = LayoutState::default();
+        assert!(!every_metric_hidden(&[account.clone()], &layout));
+        for descriptor in layout.ordered_descriptors(&account) {
+            layout.hidden_metric_ids.insert(descriptor.id);
+        }
+        assert!(fully_hidden(&account, &layout));
+        assert!(every_metric_hidden(&[account], &layout));
+        assert!(!every_metric_hidden(&[], &layout));
     }
 }

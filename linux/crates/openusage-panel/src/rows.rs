@@ -20,10 +20,12 @@ pub struct Extra {
     pub claim: Option<ClaimChrome>,
 }
 
+#[derive(Clone)]
 pub struct Toggles {
     pub meter: Rc<dyn Fn()>,
     pub reset: Rc<dyn Fn()>,
-    pub breakdown: Rc<dyn Fn(&gtk4::Widget, String, UsageBreakdown)>,
+    /// Copies a PNG of this figure. The bool is whether the picture was copied or saved.
+    pub copied: Rc<dyn Fn(String, UsageBreakdown) -> bool>,
 }
 
 pub fn account_body(
@@ -32,6 +34,7 @@ pub fn account_body(
     absolute: bool,
     toggles: &Toggles,
     extra: &dyn Fn(&DashboardLine) -> Extra,
+    bind: &dyn Fn(&DashboardLine, &gtk4::Widget),
 ) -> gtk4::Box {
     let box_ = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
     if account.waiting {
@@ -43,12 +46,21 @@ pub fn account_body(
     }
     for line in &account.lines {
         let extra = extra(line);
-        box_.append(&metric_row(line, now, absolute, toggles, &extra));
+        let widget = metric_row(line, now, absolute, toggles, &extra);
+        bind(line, &widget);
+        box_.append(&widget);
         if extra.inline_breakdown {
             if let Some(breakdown) = &extra.breakdown {
                 let card = crate::breakdown::card(&line.data.title, breakdown);
                 card.add_css_class("card");
-                box_.append(&card);
+                let copied = toggles.copied.clone();
+                let title = line.data.title.clone();
+                let shot = breakdown.clone();
+                box_.append(&crate::breakdown::with_copy(
+                    card,
+                    breakdown,
+                    Rc::new(move || copied(title.clone(), shot.clone())),
+                ));
             }
         }
     }
@@ -62,10 +74,23 @@ pub fn account_body(
     box_
 }
 
-fn metric_row(line: &DashboardLine, now: DateTime<Utc>, absolute: bool, toggles: &Toggles, extra: &Extra) -> gtk4::Widget {
+fn metric_row(
+    line: &DashboardLine,
+    now: DateTime<Utc>,
+    absolute: bool,
+    toggles: &Toggles,
+    extra: &Extra,
+) -> gtk4::Widget {
     let row = line.data.row(now);
     let widget = match &row.mark {
-        Mark::Bar { fill, severity, value, used_up, marker, .. } => {
+        Mark::Bar {
+            fill,
+            severity,
+            value,
+            used_up,
+            marker,
+            ..
+        } => {
             let marker = row.pace.is_some().then_some(*marker).flatten();
             let reset = format::bar_reset(&line.data, now, absolute);
             bar_row(
@@ -81,9 +106,19 @@ fn metric_row(line: &DashboardLine, now: DateTime<Utc>, absolute: bool, toggles:
                 toggles,
             )
         }
-        Mark::Value { value, detail, severity } => {
-            value_row(&row.title, value, detail.as_deref(), *severity, extra, toggles).upcast()
-        }
+        Mark::Value {
+            value,
+            detail,
+            severity,
+        } => value_row(
+            &row.title,
+            value,
+            detail.as_deref(),
+            *severity,
+            extra,
+            toggles,
+        )
+        .upcast(),
     };
     widget
 }
@@ -121,7 +156,11 @@ fn bar_row(
     spring.set_hexpand(true);
     bottom.append(&spring);
     if let Some(reset) = reset {
-        let classes: &[&str] = if used_up { &["reset", "crit", "nums"] } else { &["reset", "secondary", "nums"] };
+        let classes: &[&str] = if used_up {
+            &["reset", "crit", "nums"]
+        } else {
+            &["reset", "secondary", "nums"]
+        };
         bottom.append(&reset_button(reset, classes, &toggles.reset));
     }
     block.append(&bottom);
@@ -155,22 +194,37 @@ fn value_row(
     value_classes.push(severity_class(severity, false));
     figures.append(&ui::text(value, &value_classes));
     if let Some(detail) = detail {
-        figures.append(&ui::text(&format!(" · {detail}"), &["figure", "secondary", "nums"]));
+        figures.append(&ui::text(
+            &format!(" · {detail}"),
+            &["figure", "secondary", "nums"],
+        ));
     }
     if let Some(breakdown) = extra.breakdown.clone() {
         let button = gtk4::Button::new();
         button.add_css_class("plain");
         button.set_child(Some(&figures));
+        let copied = toggles.copied.clone();
         let title_owned = title.to_string();
-        let on_click = toggles.breakdown.clone();
-        let click_title = title_owned.clone();
+        let open: Rc<dyn Fn(&gtk4::Widget, UsageBreakdown)> = Rc::new(move |anchor, breakdown| {
+            let copied = copied.clone();
+            let title_for_button = title_owned.clone();
+            let shot = breakdown.clone();
+            crate::breakdown::show_popover(
+                anchor,
+                &title_owned,
+                &breakdown,
+                Rc::new(move || copied(title_for_button.clone(), shot.clone())),
+            );
+        });
+        let click_open = open.clone();
         let click_breakdown = breakdown.clone();
-        button.connect_clicked(move |button| on_click(button.upcast_ref(), click_title.clone(), click_breakdown.clone()));
+        button.connect_clicked(move |button| {
+            click_open(button.upcast_ref(), click_breakdown.clone())
+        });
         let motion = gtk4::EventControllerMotion::new();
-        let on_hover = toggles.breakdown.clone();
         motion.connect_enter(move |motion, _, _| {
             if let Some(widget) = motion.widget() {
-                on_hover(&widget, title_owned.clone(), breakdown.clone());
+                open(&widget, breakdown.clone());
             }
         });
         button.add_controller(motion);
@@ -185,7 +239,12 @@ fn value_row(
     wrap
 }
 
-pub fn amount(value: &str, severity: Severity, toggle: bool, on_toggle: &Rc<dyn Fn()>) -> gtk4::Widget {
+pub fn amount(
+    value: &str,
+    severity: Severity,
+    toggle: bool,
+    on_toggle: &Rc<dyn Fn()>,
+) -> gtk4::Widget {
     let classes = ["figure", "nums", severity_class(severity, true)];
     if !toggle {
         return ui::text(value, &classes).upcast();
@@ -228,12 +287,23 @@ pub fn level_bar(fill: f64, severity: Severity, marker: Option<f64>) -> gtk4::Dr
     area
 }
 
-fn paint_bar(context: &cairo::Context, width: i32, height: i32, fill: f64, severity: Severity, marker: Option<f64>) {
+fn paint_bar(
+    context: &cairo::Context,
+    width: i32,
+    height: i32,
+    fill: f64,
+    severity: Severity,
+    marker: Option<f64>,
+) {
     let dark = prefers_dark();
     let bar_h = 5.0;
     let y = (height as f64 - bar_h) / 2.0;
     let radius = bar_h / 2.0;
-    let track = if dark { (1.0, 1.0, 1.0, 0.12) } else { (0.0, 0.0, 0.0, 0.09) };
+    let track = if dark {
+        (1.0, 1.0, 1.0, 0.12)
+    } else {
+        (0.0, 0.0, 0.0, 0.09)
+    };
     rounded(context, 0.0, y, width as f64, bar_h, radius);
     context.set_source_rgba(track.0, track.1, track.2, track.3);
     let _ = context.fill();
@@ -273,15 +343,43 @@ pub fn severity_rgb(severity: Severity, dark: bool) -> (f64, f64, f64) {
         (Severity::Normal, true) => 0x0a84ff,
         (Severity::Normal, false) => 0x007aff,
     };
-    (((hex >> 16) & 0xff) as f64 / 255.0, ((hex >> 8) & 0xff) as f64 / 255.0, (hex & 0xff) as f64 / 255.0)
+    (
+        ((hex >> 16) & 0xff) as f64 / 255.0,
+        ((hex >> 8) & 0xff) as f64 / 255.0,
+        (hex & 0xff) as f64 / 255.0,
+    )
 }
 
 fn rounded(context: &cairo::Context, x: f64, y: f64, width: f64, height: f64, radius: f64) {
     let radius = radius.min(width / 2.0).min(height / 2.0).max(0.0);
     context.new_sub_path();
-    context.arc(x + width - radius, y + radius, radius, -std::f64::consts::FRAC_PI_2, 0.0);
-    context.arc(x + width - radius, y + height - radius, radius, 0.0, std::f64::consts::FRAC_PI_2);
-    context.arc(x + radius, y + height - radius, radius, std::f64::consts::FRAC_PI_2, std::f64::consts::PI);
-    context.arc(x + radius, y + radius, radius, std::f64::consts::PI, std::f64::consts::PI + std::f64::consts::FRAC_PI_2);
+    context.arc(
+        x + width - radius,
+        y + radius,
+        radius,
+        -std::f64::consts::FRAC_PI_2,
+        0.0,
+    );
+    context.arc(
+        x + width - radius,
+        y + height - radius,
+        radius,
+        0.0,
+        std::f64::consts::FRAC_PI_2,
+    );
+    context.arc(
+        x + radius,
+        y + height - radius,
+        radius,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+    );
+    context.arc(
+        x + radius,
+        y + radius,
+        radius,
+        std::f64::consts::PI,
+        std::f64::consts::PI + std::f64::consts::FRAC_PI_2,
+    );
     context.close_path();
 }

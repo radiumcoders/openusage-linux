@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 
 use chrono::{DateTime, Utc};
 use openusage_core::account::Account;
-use openusage_core::descriptor::descriptors;
+use openusage_core::layout::{self, LayoutState};
 use openusage_core::log;
 use openusage_core::metric::ProviderSnapshot;
 use openusage_core::store::Settings;
@@ -196,7 +196,8 @@ impl Notifier {
         now: DateTime<Utc>,
     ) {
         let settings = Settings::open();
-        let items = items_from(accounts, snapshots, now);
+        let layout = layout::load_for(&settings, accounts);
+        let items = items_from(accounts, &layout, snapshots, now);
         evaluate_items(
             &mut self.states,
             &items,
@@ -216,13 +217,14 @@ impl Notifier {
 
 fn items_from(
     accounts: &[Account],
+    layout: &LayoutState,
     snapshots: &std::collections::BTreeMap<String, ProviderSnapshot>,
     now: DateTime<Utc>,
 ) -> Vec<Item> {
     let mut items = Vec::new();
-    for account in accounts {
+    for account in layout.ordered_accounts(accounts) {
         let snapshot = snapshots.get(&account.card_id());
-        for descriptor in descriptors(account) {
+        for descriptor in layout.visible_descriptors(&account) {
             let data = WidgetData::resolve(&descriptor, snapshot, DisplayMode::Remaining);
             if !data.is_bounded() {
                 continue;
@@ -497,5 +499,44 @@ mod tests {
             "running-out\toff\tA limit may run out before its reset"
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_hidden_metric_is_not_an_alert() {
+        use openusage_core::kind::ProviderKind;
+        use openusage_core::metric::{MetricLine, ProviderSnapshot};
+
+        let account = Account::new(ProviderKind::Claude, "Work", None);
+        let weekly = format!("{}.weekly", account.card_id());
+        let mut layout = LayoutState::default();
+        assert!(layout.set_hidden(&weekly, true));
+        let now = Utc::now();
+        let snapshot = ProviderSnapshot {
+            breakdowns: Default::default(),
+            provider_id: account.card_id(),
+            display_name: "Claude".into(),
+            plan: None,
+            lines: vec![
+                MetricLine::percent(
+                    "Weekly",
+                    95.0,
+                    Some(now + chrono::Duration::hours(5)),
+                    Some(3_600_000),
+                ),
+                MetricLine::percent(
+                    "Session",
+                    10.0,
+                    Some(now + chrono::Duration::hours(1)),
+                    Some(3_600_000),
+                ),
+            ],
+            notice: None,
+            refreshed_at: now,
+        };
+        let mut snapshots = std::collections::BTreeMap::new();
+        snapshots.insert(account.card_id(), snapshot);
+        let items = items_from(std::slice::from_ref(&account), &layout, &snapshots, now);
+        assert!(items.iter().all(|item| item.key != weekly));
+        assert!(items.iter().any(|item| item.key.ends_with(".session")));
     }
 }
