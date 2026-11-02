@@ -1151,6 +1151,19 @@ fn history_rows_count_on_demand_charges_and_reread_today_and_yesterday() {
         history_figure(&usage, "Last 30 Days"),
         Some((37.5, 99_090.0))
     );
+    let today = &usage.breakdowns["today"].models;
+    assert_eq!(today[0].name, "claude-4.6-opus");
+    assert_eq!(today[0].dollars, Some(1.25));
+    assert_eq!(today[0].tokens, Some(203.0));
+    assert_eq!(today[1].name, "composer-2");
+    assert_eq!(today[1].dollars, Some(0.0));
+    assert_eq!(today[1].tokens, Some(3_100.0));
+    let month = &usage.breakdowns["last30"].models;
+    assert_eq!(month[0].name, "claude-4.6-opus");
+    assert_eq!(month[0].dollars, Some(37.5));
+    assert_eq!(month[0].tokens, Some(6_090.0));
+    assert_eq!(month[1].dollars, Some(0.0));
+    assert_eq!(month[1].tokens, Some(93_000.0));
     let first = http
         .requests
         .lock()

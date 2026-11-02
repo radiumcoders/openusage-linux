@@ -1,12 +1,12 @@
 //! Claude provider. Port of `Sources/OpenUsage/Providers/Claude` and `ClaudeLogin`.
 //!
-//! Reset grants are read, not claimed. The 429 window lives in this account's `ProviderState`
+//! Reset grants are read here; `claims` spends one. The 429 window lives in this account's `ProviderState`
 //! for the process; the Mac app also shares one login's window across cards and relaunches.
 
 #[path = "login.rs"]
 mod auth;
-mod client;
-mod mapper;
+pub(crate) mod client;
+pub(crate) mod mapper;
 
 #[cfg(test)]
 mod tests;

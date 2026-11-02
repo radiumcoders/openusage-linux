@@ -14,7 +14,7 @@ use openusage_core::dashboard::{self, DashboardAccount};
 use openusage_core::engine::{self, AccountStatus, Engine};
 use openusage_core::metric::ProviderSnapshot;
 use openusage_core::refresh::INTERVAL_SECONDS;
-use openusage_core::store::{Settings, SnapshotCache, MENU_BAR_LIMIT_KEY};
+use openusage_core::store::{Settings, SnapshotCache};
 use openusage_core::widget::{Severity, WidgetData, DisplayMode, IMMINENT};
 use openusage_core::daemon::PidLock;
 use serde_json::{Map, Value};
@@ -140,12 +140,9 @@ struct BarOptions {
 fn bar_options() -> BarOptions {
     let settings = Settings::open();
     BarOptions {
-        mode: match settings.string("meterStyle").as_deref() {
-            Some("used") => DisplayMode::Used,
-            _ => DisplayMode::Remaining,
-        },
-        absolute_resets: settings.string("resetDisplayMode").as_deref() == Some("absolute"),
-        limit: dashboard::menu_bar_limit(settings.string(MENU_BAR_LIMIT_KEY).as_deref()),
+        mode: openusage_core::settings::display_mode(&settings),
+        absolute_resets: openusage_core::settings::absolute_resets(&settings),
+        limit: openusage_core::settings::menu_bar_limit(&settings),
     }
 }
 

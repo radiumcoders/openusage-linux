@@ -65,6 +65,10 @@ pub enum MetricLine {
         values: Vec<MetricValue>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         expiries_at: Vec<DateTime<Utc>>,
+        /// Claude's claim confirmation, kept off the figures. Empty means a claim is offered with no
+        /// extra sentence. Absent means this line is not a claimable Claude grant.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
     },
     Badge {
         label: String,
@@ -92,7 +96,7 @@ impl MetricLine {
     }
 
     pub fn values(label: impl Into<String>, values: Vec<MetricValue>) -> Self {
-        Self::Values { label: label.into(), values, expiries_at: vec![] }
+        Self::Values { label: label.into(), values, expiries_at: vec![], detail: None }
     }
 }
 
@@ -131,6 +135,66 @@ pub struct UsageBreakdown {
 
 impl UsageBreakdown {
     pub const SHOWN_MODELS: usize = 5;
+
+    /// The models the popover shows: ranked by cost, then tokens, then share, with the rest as Other.
+    /// A figure is available only when some model reports it above zero. Dollars and tokens that were
+    /// not reported are cleared so a zero-spend model is not treated as a cost.
+    pub fn ranked(mut models: Vec<BreakdownModel>) -> Option<Self> {
+        let cost = models.iter().any(|model| model.dollars.is_some_and(|number| number > 0.0));
+        let tokens = models.iter().any(|model| model.tokens.is_some_and(|number| number > 0.0));
+        let share = models.iter().any(|model| model.share.is_some_and(|number| number > 0.0));
+        let figure = if cost {
+            0
+        } else if tokens {
+            1
+        } else if share {
+            2
+        } else {
+            return None;
+        };
+        if !cost {
+            for model in &mut models {
+                model.dollars = None;
+            }
+        }
+        if !tokens {
+            for model in &mut models {
+                model.tokens = None;
+            }
+        }
+        let number = |model: &BreakdownModel| match figure {
+            0 => model.dollars,
+            1 => model.tokens,
+            _ => model.share,
+        };
+        models.retain(|model| number(model).is_some());
+        models.sort_by(|left, right| {
+            let left_number = number(left).unwrap_or(0.0);
+            let right_number = number(right).unwrap_or(0.0);
+            right_number.total_cmp(&left_number).then_with(|| left.name.cmp(&right.name))
+        });
+        if models.is_empty() {
+            return None;
+        }
+        if models.len() > Self::SHOWN_MODELS {
+            let rest = models.split_off(Self::SHOWN_MODELS);
+            models.push(BreakdownModel {
+                name: "Other".into(),
+                dollars: sum_optional(rest.iter().map(|model| model.dollars)),
+                tokens: sum_optional(rest.iter().map(|model| model.tokens)),
+                share: sum_optional(rest.iter().map(|model| model.share)),
+            });
+        }
+        Some(Self { models })
+    }
+}
+
+fn sum_optional(values: impl Iterator<Item = Option<f64>>) -> Option<f64> {
+    let mut total = None;
+    for value in values.flatten() {
+        total = Some(total.unwrap_or(0.0) + value);
+    }
+    total
 }
 
 /// The last successful read of one account, as cached and shown.

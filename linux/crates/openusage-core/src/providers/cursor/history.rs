@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::http::HttpClient;
 use crate::log;
-use crate::metric::{MetricKind, MetricLine, MetricValue};
+use crate::metric::{BreakdownModel, MetricKind, MetricLine, MetricValue, ProviderUsage, UsageBreakdown};
 use crate::provider::FetchContext;
 
 use super::client;
@@ -25,9 +25,17 @@ const WORKERS: usize = 4;
 const LEDGER_KEY: &str = "cursor_history_ledger";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct StoredModel {
+    spend: f64,
+    tokens: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredDay {
     spend: f64,
     tokens: f64,
+    #[serde(default)]
+    models: BTreeMap<String, StoredModel>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -77,11 +85,7 @@ impl Ledger {
     }
 }
 
-pub(crate) fn append_lines(
-    ctx: &mut FetchContext<'_>,
-    access_token: &str,
-    lines: &mut Vec<MetricLine>,
-) {
+pub(crate) fn append_lines(ctx: &mut FetchContext<'_>, access_token: &str, usage: &mut ProviderUsage) {
     let now = ctx.now;
     let span = day_starts(30, now);
     let keys: Vec<i64> = span.iter().map(|day| day.timestamp()).collect();
@@ -114,6 +118,16 @@ pub(crate) fn append_lines(
                     StoredDay {
                         spend: totals.spend,
                         tokens: totals.tokens,
+                        models: totals
+                            .by_model
+                            .iter()
+                            .map(|(name, model)| {
+                                (
+                                    name.clone(),
+                                    StoredModel { spend: model.spend, tokens: model.tokens },
+                                )
+                            })
+                            .collect(),
                     },
                 )
             })
@@ -129,16 +143,52 @@ pub(crate) fn append_lines(
         ("Yesterday", 1..2),
         ("Last 30 Days", 0..30),
     ] {
-        if let Some((spend, tokens)) = sum(&keys, indexes, &ledger.days) {
-            lines.push(MetricLine::values(
+        if let Some((spend, tokens)) = sum(&keys, indexes.clone(), &ledger.days) {
+            usage.lines.push(MetricLine::values(
                 label,
                 vec![
                     MetricValue::new(spend, MetricKind::Dollars),
                     MetricValue::labeled(tokens, MetricKind::Count, "tokens"),
                 ],
             ));
+            if let Some(breakdown) = UsageBreakdown::ranked(window_models(&keys, indexes, &ledger.days)) {
+                usage.breakdowns.insert(history_key(label).to_string(), breakdown);
+            }
         }
     }
+}
+
+fn history_key(label: &str) -> &'static str {
+    match label {
+        "Today" => "today",
+        "Yesterday" => "yesterday",
+        _ => "last30",
+    }
+}
+
+fn window_models(
+    span: &[i64],
+    indexes: std::ops::Range<usize>,
+    days: &BTreeMap<i64, StoredDay>,
+) -> Vec<BreakdownModel> {
+    let mut models: BTreeMap<String, (f64, f64)> = BTreeMap::new();
+    for index in indexes {
+        let Some(day) = span.get(index).and_then(|key| days.get(key)) else { continue };
+        for (name, model) in &day.models {
+            let slot = models.entry(name.clone()).or_insert((0.0, 0.0));
+            slot.0 += model.spend;
+            slot.1 += model.tokens;
+        }
+    }
+    models
+        .into_iter()
+        .map(|(name, (spend, tokens))| BreakdownModel {
+            name,
+            dollars: Some(spend),
+            tokens: Some(tokens),
+            share: None,
+        })
+        .collect()
 }
 
 fn sum(

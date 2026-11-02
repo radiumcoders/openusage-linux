@@ -23,14 +23,14 @@ pub(super) const RESET_GRANTS_URL: &str =
 pub(super) const CLAUDE_CODE_VERSION: &str = "2.1.294";
 const BETA: &str = "oauth-2025-04-20";
 
-pub(super) struct Grant {
+pub(crate) struct Grant {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct Profile {
+pub(crate) struct Profile {
     pub account_uuid: String,
     pub organization_uuid: Option<String>,
     pub has_organization: bool,
@@ -39,7 +39,7 @@ pub(super) struct Profile {
 }
 
 impl Profile {
-    pub(super) fn identity(&self) -> String {
+    pub(crate) fn identity(&self) -> String {
         match &self.organization_uuid {
             Some(organization) => format!("{}/{}", self.account_uuid, organization),
             None => self.account_uuid.clone(),
@@ -54,15 +54,34 @@ pub(super) fn usage_request(access_token: &str) -> HttpRequest {
     )
 }
 
-pub(super) fn grants_request(access_token: &str) -> HttpRequest {
+pub(crate) fn grants_request(access_token: &str) -> HttpRequest {
     timed(
         claude_code_headers(HttpRequest::get(RESET_GRANTS_URL), access_token),
         10,
     )
 }
 
+/// `POST /api/organizations/{uuid}/reset_rate_limits`. Body keys sort, matching Claude Code.
+pub(crate) fn claim_request(
+    access_token: &str,
+    organization: &str,
+    grant_id: &str,
+    request_id: &str,
+) -> HttpRequest {
+    let url = format!("https://api.anthropic.com/api/organizations/{organization}/reset_rate_limits");
+    let body = json!({
+        "grant_id": grant_id,
+        "program": "cedar_ember",
+        "request_id": request_id,
+    });
+    timed(
+        claude_code_headers(HttpRequest::post(url).json_body(&body), access_token),
+        25,
+    )
+}
+
 /// The hourly plan read. Login uses a bearer-only request; this one matches `fetchProfile`.
-pub(super) fn profile_request(access_token: &str) -> HttpRequest {
+pub(crate) fn profile_request(access_token: &str) -> HttpRequest {
     timed(
         HttpRequest::get(PROFILE_URL)
             .bearer(access_token.trim())
@@ -89,7 +108,7 @@ fn timed(mut request: HttpRequest, seconds: u64) -> HttpRequest {
     request
 }
 
-pub(super) fn refresh(
+pub(crate) fn refresh(
     refresh_token: &str,
     http: &dyn HttpClient,
     now: DateTime<Utc>,
@@ -104,7 +123,7 @@ pub(super) fn refresh(
     parse_grant(&response, now)
 }
 
-pub(super) fn decode_profile(response: &HttpResponse) -> Result<Profile, ProviderError> {
+pub(crate) fn decode_profile(response: &HttpResponse) -> Result<Profile, ProviderError> {
     if !response.is_success() {
         return Err(ProviderError::failed(response));
     }

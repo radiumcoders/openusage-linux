@@ -39,17 +39,21 @@ impl OpenRouterProvider {
         let api_key = ctx.api_key()?;
         let info = mapper::key(&get(ctx.http, KEY_URL, &api_key)?, ctx.now)?;
         let mut lines = Vec::new();
-        if info.management {
+        let breakdowns = if info.management {
             lines.extend(credits(ctx.http, &api_key)?);
             let spend = listed_spend(ctx.http, &api_key)?;
-            lines.extend(history::lines(ctx, &api_key, &spend, true));
+            let (rows, breakdowns) = history::lines(ctx, &api_key, &spend, true);
+            lines.extend(rows);
+            breakdowns
         } else {
             let spend = info.spend.ok_or(ProviderError::InvalidResponse)?;
-            lines.extend(history::lines(ctx, &api_key, &spend, false));
-        }
+            let (rows, breakdowns) = history::lines(ctx, &api_key, &spend, false);
+            lines.extend(rows);
+            breakdowns
+        };
         lines.extend(info.lines);
         Ok(ProviderUsage {
-            breakdowns: Default::default(),
+            breakdowns,
             plan: info.plan,
             lines,
             notice: None,

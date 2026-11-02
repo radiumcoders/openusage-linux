@@ -212,6 +212,25 @@ fn a_management_key_shows_the_accounts_spend_summed_over_every_page_of_keys() {
     assert_eq!(dollars(&usage, "Balance"), Some(77.75));
     assert_eq!(dollars(&usage, "Yesterday"), Some(1.5));
     assert_eq!(dollars(&usage, "Prior 30 Days"), Some(43.5));
+    let prior = &usage.breakdowns["prior30"].models;
+    assert_eq!(
+        prior.iter().map(|model| model.name.as_str()).collect::<Vec<_>>(),
+        ["anthropic/claude-sonnet-4.5", "openai/gpt-5"]
+    );
+    assert_eq!(prior[0].dollars, Some(36.25));
+    assert_eq!(prior[0].tokens, Some(34_800.0));
+    assert_eq!(prior[1].dollars, Some(7.25));
+    assert_eq!(prior[1].tokens, Some(89_900.0));
+    assert!(usage.breakdowns.get("today").is_none());
+    let week = &usage.breakdowns["week"].models;
+    assert_eq!(week[0].name, "anthropic/claude-sonnet-4.5");
+    assert_eq!(week[0].tokens, Some(3_600.0));
+    assert_eq!(week[1].tokens, Some(9_300.0));
+    let yesterday = &usage.breakdowns["yesterday"].models;
+    assert_eq!(yesterday[0].dollars, Some(1.25));
+    assert_eq!(yesterday[0].tokens, Some(1_200.0));
+    assert_eq!(yesterday[1].dollars, Some(0.25));
+    assert_eq!(yesterday[1].tokens, Some(3_100.0));
     assert!(usage.lines.iter().all(|line| line.label() != "Credits"));
     assert_eq!(usage.plan.as_deref(), Some("Pay-as-you-go"));
     assert_eq!(

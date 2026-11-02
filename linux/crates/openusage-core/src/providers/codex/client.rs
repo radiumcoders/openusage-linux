@@ -1,5 +1,5 @@
 //! ChatGPT HTTP: usage, reset credits, reports, and the refresh grant.
-//! Port of `CodexUsageClient` and `CodexLogin.refresh`. Claiming a reset credit is out of scope.
+//! Port of `CodexUsageClient` and `CodexLogin.refresh`. `consume_reset_credit` spends one credit.
 
 use std::time::Duration;
 
@@ -30,7 +30,7 @@ pub(super) const REDIRECT_PORT: u16 = 1455;
 pub(super) const REDIRECT_PATH: &str = "/auth/callback";
 
 #[derive(Debug)]
-pub(super) struct Grant {
+pub(crate) struct Grant {
     pub access_token: String,
     pub refresh_token: Option<String>,
     /// The access token's `exp` claim. A token that isn't a JWT has no expiry, which replaces the old one.
@@ -44,17 +44,34 @@ pub(super) fn usage_request(access_token: &str, account_id: Option<&str>) -> Htt
     )
 }
 
-pub(super) fn reset_credits_request(access_token: &str, account_id: Option<&str>) -> HttpRequest {
+pub(crate) fn reset_credits_request(access_token: &str, account_id: Option<&str>) -> HttpRequest {
+    timed(reset_credit_headers(HttpRequest::get(RESET_CREDITS_URL), access_token, account_id), 10)
+}
+
+/// `POST .../rate-limit-reset-credits/consume`. Body keys are sorted.
+pub(crate) fn consume_reset_credit(
+    access_token: &str,
+    account_id: Option<&str>,
+    credit_id: &str,
+    request_id: &str,
+) -> HttpRequest {
+    let mut body = serde_json::Map::new();
+    body.insert("credit_id".into(), Value::String(credit_id.to_string()));
+    body.insert("redeem_request_id".into(), Value::String(request_id.to_string()));
     timed(
-        usage_headers(
-            HttpRequest::get(RESET_CREDITS_URL),
+        reset_credit_headers(
+            HttpRequest::post(format!("{RESET_CREDITS_URL}/consume")).json_body(&Value::Object(body)),
             access_token,
             account_id,
-        )
-        .header("OpenAI-Beta", "codex-1")
-        .header("originator", "Codex Desktop"),
-        10,
+        ),
+        15,
     )
+}
+
+fn reset_credit_headers(request: HttpRequest, access_token: &str, account_id: Option<&str>) -> HttpRequest {
+    usage_headers(request, access_token, account_id)
+        .header("OpenAI-Beta", "codex-1")
+        .header("originator", "Codex Desktop")
 }
 
 pub(super) fn report_request(
@@ -104,7 +121,7 @@ pub(super) fn form_encode(value: &str) -> String {
     encoded
 }
 
-pub(super) fn refresh(refresh_token: &str, http: &dyn HttpClient) -> Result<Grant, ProviderError> {
+pub(crate) fn refresh(refresh_token: &str, http: &dyn HttpClient) -> Result<Grant, ProviderError> {
     let body = format!(
         "grant_type=refresh_token&client_id={}&refresh_token={}",
         form_encode(CLIENT_ID),

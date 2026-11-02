@@ -18,6 +18,7 @@ pub mod provider;
 pub mod providers;
 pub mod proxy;
 pub mod refresh;
+pub mod settings;
 pub mod store;
 pub mod vault;
 pub mod widget;

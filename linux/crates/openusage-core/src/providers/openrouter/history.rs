@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::mapper::{self, Spend};
 use crate::http::{HttpClient, HttpRequest};
 use crate::log;
-use crate::metric::{MetricKind, MetricLine, MetricValue};
+use crate::metric::{BreakdownModel, MetricKind, MetricLine, MetricValue, UsageBreakdown};
 use crate::provider::FetchContext;
 
 const HISTORY: &str = "activity";
@@ -30,10 +30,23 @@ struct Ledger {
     partial_day: Option<i64>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct StoredModel {
+    spend: f64,
+    tokens: f64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct StoredDay {
     day: i64,
     measures: BTreeMap<String, f64>,
+    #[serde(default)]
+    models: BTreeMap<String, StoredModel>,
+}
+
+struct ReadDay {
+    measures: BTreeMap<String, f64>,
+    models: BTreeMap<String, StoredModel>,
 }
 
 pub fn lines(
@@ -41,7 +54,7 @@ pub fn lines(
     api_key: &str,
     spend: &Spend,
     read_activity: bool,
-) -> Vec<MetricLine> {
+) -> (Vec<MetricLine>, BTreeMap<String, UsageBreakdown>) {
     let ledger = if read_activity {
         Some(refresh(ctx, api_key))
     } else {
@@ -88,19 +101,15 @@ fn due_days(ledger: &Ledger, span: &[i64]) -> Vec<i64> {
     due
 }
 
-fn record(
-    ledger: &mut Ledger,
-    read: &BTreeMap<i64, BTreeMap<String, f64>>,
-    due: &[i64],
-    span: &[i64],
-) {
+fn record(ledger: &mut Ledger, read: &BTreeMap<i64, ReadDay>, due: &[i64], span: &[i64]) {
     ledger
         .days
         .retain(|stored| span.contains(&stored.day) && !due.contains(&stored.day));
-    for (day, measures) in read {
+    for (day, read) in read {
         ledger.days.push(StoredDay {
             day: *day,
-            measures: measures.clone(),
+            measures: read.measures.clone(),
+            models: read.models.clone(),
         });
     }
     ledger.partial_day = span.first().copied();
@@ -112,7 +121,7 @@ fn read_activity(
     due: &[i64],
     today: i64,
     card: &str,
-) -> BTreeMap<i64, BTreeMap<String, f64>> {
+) -> BTreeMap<i64, ReadDay> {
     let tag = "plugin:openrouter";
     let past: Vec<i64> = due.iter().copied().filter(|day| *day < today).collect();
     if past.is_empty() {
@@ -146,50 +155,109 @@ fn read_activity(
     };
     past.into_iter()
         .map(|day| {
+            let activity = parsed.get(&day);
             (
                 day,
-                parsed
-                    .get(&day)
-                    .map(|day| day.totals.clone())
-                    .unwrap_or_else(mapper::quiet),
+                ReadDay {
+                    measures: activity.map(|day| day.totals.clone()).unwrap_or_else(mapper::quiet),
+                    models: activity.map(stored_models).unwrap_or_default(),
+                },
             )
         })
         .collect()
 }
 
-fn spend_lines(spend: &Spend, ledger: Option<&Ledger>, now: DateTime<Utc>) -> Vec<MetricLine> {
+fn stored_models(day: &mapper::ActivityDay) -> BTreeMap<String, StoredModel> {
+    day.by_model
+        .iter()
+        .map(|(name, measures)| {
+            (
+                name.clone(),
+                StoredModel {
+                    spend: measures.get("spend").copied().unwrap_or(0.0),
+                    tokens: measures.get("tokens").copied().unwrap_or(0.0),
+                },
+            )
+        })
+        .collect()
+}
+
+fn spend_lines(
+    spend: &Spend,
+    ledger: Option<&Ledger>,
+    now: DateTime<Utc>,
+) -> (Vec<MetricLine>, BTreeMap<String, UsageBreakdown>) {
     let today = mapper::midnight(now).timestamp();
-    [
-        (
-            "Today",
-            merge(window(ledger, today, 0, 0), Some(spend.today.spend)),
-        ),
-        ("Yesterday", merge(window(ledger, today, 1, 1), None)),
+    let windows = [
+        ("Today", "today", merge(window(ledger, today, 0, 0), Some(spend.today.spend)), model_window(ledger, today, 0, 0)),
+        ("Yesterday", "yesterday", merge(window(ledger, today, 1, 1), None), model_days(ledger, (1..=1).map(|offset| today - offset * DAY))),
         (
             "This Week",
-            merge(
-                interval(ledger, mapper::reset_window("weekly", now)),
-                Some(spend.week.spend),
-            ),
+            "week",
+            merge(interval(ledger, mapper::reset_window("weekly", now)), Some(spend.week.spend)),
+            model_interval(ledger, mapper::reset_window("weekly", now)),
         ),
         (
             "This Month",
-            merge(
-                interval(ledger, mapper::reset_window("monthly", now)),
-                Some(spend.month.spend),
-            ),
+            "month",
+            merge(interval(ledger, mapper::reset_window("monthly", now)), Some(spend.month.spend)),
+            model_interval(ledger, mapper::reset_window("monthly", now)),
         ),
-        ("Prior 30 Days", merge(window(ledger, today, 1, 30), None)),
-    ]
-    .into_iter()
-    .filter_map(|(label, totals)| {
-        totals
-            .and_then(|totals| totals.get("spend").copied())
-            .map(|number| {
-                MetricLine::values(label, vec![MetricValue::new(number, MetricKind::Dollars)])
-            })
-    })
-    .collect()
+        (
+            "Prior 30 Days",
+            "prior30",
+            merge(window(ledger, today, 1, 30), None),
+            model_days(ledger, (1..=30).map(|offset| today - offset * DAY)),
+        ),
+    ];
+    let mut lines = Vec::new();
+    let mut breakdowns = BTreeMap::new();
+    for (label, key, totals, models) in windows {
+        let Some(number) = totals.and_then(|totals| totals.get("spend").copied()) else { continue };
+        lines.push(MetricLine::values(label, vec![MetricValue::new(number, MetricKind::Dollars)]));
+        if let Some(breakdown) = UsageBreakdown::ranked(models) {
+            breakdowns.insert(key.to_string(), breakdown);
+        }
+    }
+    (lines, breakdowns)
+}
+
+fn model_window(ledger: Option<&Ledger>, today: i64, first: i64, last: i64) -> Vec<BreakdownModel> {
+    model_days(ledger, (first..=last).map(|offset| today - offset * DAY))
+}
+
+fn model_interval(ledger: Option<&Ledger>, bounds: Option<(DateTime<Utc>, i64)>) -> Vec<BreakdownModel> {
+    let Some((end, period_ms)) = bounds else { return Vec::new() };
+    let start = end.timestamp() - period_ms / 1000;
+    let mut day = start;
+    let mut days = Vec::new();
+    while day < end.timestamp() {
+        days.push(day);
+        day += DAY;
+    }
+    model_days(ledger, days.into_iter())
+}
+
+fn model_days(ledger: Option<&Ledger>, days: impl Iterator<Item = i64>) -> Vec<BreakdownModel> {
+    let Some(ledger) = ledger else { return Vec::new() };
+    let mut models: BTreeMap<String, (f64, f64)> = BTreeMap::new();
+    for day in days {
+        let Some(stored) = ledger.days.iter().find(|stored| stored.day == day) else { continue };
+        for (name, model) in &stored.models {
+            let slot = models.entry(name.clone()).or_insert((0.0, 0.0));
+            slot.0 += model.spend;
+            slot.1 += model.tokens;
+        }
+    }
+    models
+        .into_iter()
+        .map(|(name, (spend, tokens))| BreakdownModel {
+            name,
+            dollars: Some(spend),
+            tokens: Some(tokens),
+            share: None,
+        })
+        .collect()
 }
 
 /// A window with no reported figure appears when at least one of its days was read. A missing day is

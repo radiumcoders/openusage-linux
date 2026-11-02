@@ -126,7 +126,7 @@ const USAGE: &str = r#"{"plan_type":"pro","rate_limit":{"primary_window":{"used_
 const COUNTS: &str = r#"{"data":[
  {"date":"2026-10-31","totals":{"text_total_tokens":0,"turns":0}},
  {"date":"2026-10-02","totals":{"cached_text_input_tokens":470000000,"text_output_tokens":363029,"text_total_tokens":495363029,"turns":392,"uncached_text_input_tokens":25000000}},
- {"date":"2026-10-29","totals":{"cached_text_input_tokens":1475954688,"text_output_tokens":2180573,"text_total_tokens":1511437552,"turns":86,"uncached_text_input_tokens":33302291}},
+ {"date":"2026-10-29","totals":{"cached_text_input_tokens":1475954688,"text_output_tokens":2180573,"text_total_tokens":1511437552,"turns":86,"uncached_text_input_tokens":33302291},"models":[{"credits":0.0,"model":"gpt-6.1-sol","threads":40,"turns":55,"users":1},{"credits":0.0,"model":"gpt-6-astra","threads":3,"turns":31,"users":1}]},
  {"date":"2026-10-30","totals":{"cached_text_input_tokens":7183232,"text_output_tokens":27164,"text_total_tokens":8139475,"turns":0,"uncached_text_input_tokens":929079}}
 ]}"#;
 

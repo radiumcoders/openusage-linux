@@ -55,7 +55,7 @@ impl OllamaProvider {
         }
         let account = ctx.state.get::<Value>(ACCOUNT);
         let mut usage = mapper::map(&balance.body, account.as_ref())?;
-        history::append(ctx, &key, &mut usage.lines);
+        history::append(ctx, &key, &mut usage);
         Ok(usage)
     }
 }

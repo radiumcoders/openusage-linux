@@ -43,10 +43,29 @@ fn usage_body(at: DateTime<Utc>, range: &str, legacy: bool) -> Value {
                 "request_count": (4.0 * scale) as i64
             });
             if !legacy {
+                let input = (3_000.0 * scale) as i64;
+                let output = (300.0 * scale) as i64;
+                let requests = (4.0 * scale) as i64;
                 bucket["usage_usd"] = json!(0.25 * scale);
-                bucket["input_tokens"] = json!((3_000.0 * scale) as i64);
+                bucket["input_tokens"] = json!(input);
                 bucket["cached_input_tokens"] = json!((1_000.0 * scale) as i64);
-                bucket["output_tokens"] = json!((300.0 * scale) as i64);
+                bucket["output_tokens"] = json!(output);
+                bucket["groups"] = json!([
+                    {
+                        "model": "glm-5.3",
+                        "request_count": requests * 3 / 5,
+                        "usage_usd": 0.25 * scale * 0.6,
+                        "input_tokens": input * 3 / 5,
+                        "output_tokens": output * 3 / 5
+                    },
+                    {
+                        "model": "glm-5.3-flash",
+                        "request_count": requests - requests * 3 / 5,
+                        "usage_usd": 0.25 * scale * 0.4,
+                        "input_tokens": input - input * 3 / 5,
+                        "output_tokens": output - output * 3 / 5
+                    }
+                ]);
             }
             bucket
         })
@@ -149,6 +168,14 @@ fn rows_show_each_utc_day_and_tokens_count_cached_input_once() {
             (6_600.0, MetricKind::Count, Some("tokens".into()))
         ]
     );
+    let today = &usage.breakdowns["today"].models;
+    assert_eq!(today[0].name, "glm-5.3");
+    assert_eq!(today[0].dollars, Some(0.3));
+    assert_eq!(today[0].tokens, Some(3_960.0));
+    assert_eq!(today[1].name, "glm-5.3-flash");
+    assert_eq!(today[1].dollars, Some(0.2));
+    assert_eq!(today[1].tokens, Some(2_640.0));
+    assert!(usage.breakdowns.get("yesterday").is_none());
     assert_eq!(
         values(
             usage

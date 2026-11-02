@@ -14,17 +14,21 @@ const SESSION_MS: i64 = 5 * 60 * 60 * 1000;
 const WEEK_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub(super) struct GrantStatus {
+pub(crate) struct GrantStatus {
     pub eligible: bool,
     pub grants: Vec<StoredGrant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_grant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub(super) struct StoredGrant {
+pub(crate) struct StoredGrant {
     pub id: String,
     pub resets_left: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ends_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clears: Vec<String>,
 }
 
 pub(super) fn map_usage(response: &HttpResponse) -> Result<Vec<MetricLine>, ProviderError> {
@@ -39,7 +43,7 @@ pub(super) fn map_usage(response: &HttpResponse) -> Result<Vec<MetricLine>, Prov
     Ok(lines)
 }
 
-pub(super) fn map_reset_grants(
+pub(crate) fn map_reset_grants(
     response: &HttpResponse,
 ) -> Result<Option<GrantStatus>, ProviderError> {
     ProviderError::require_success(response, ProviderKind::Claude)?;
@@ -47,7 +51,7 @@ pub(super) fn map_reset_grants(
     Ok(parse_status(body.get("cedar_ember")))
 }
 
-pub(super) fn resets_line(status: &GrantStatus, now: DateTime<Utc>) -> MetricLine {
+pub(crate) fn resets_line(status: &GrantStatus, now: DateTime<Utc>) -> MetricLine {
     let mut count = 0_i64;
     let mut expiries = Vec::new();
     if status.eligible {
@@ -73,7 +77,86 @@ pub(super) fn resets_line(status: &GrantStatus, now: DateTime<Utc>) -> MetricLin
             "available",
         )],
         expiries_at: expiries,
+        detail: confirm_detail(status),
     }
+}
+
+/// The grant a claim can spend, when this sign-in is eligible and that grant still has a reset.
+pub(crate) fn claimable_id(status: &GrantStatus) -> Option<&str> {
+    if !status.eligible {
+        return None;
+    }
+    let next = status.next_grant_id.as_deref()?;
+    status
+        .grants
+        .iter()
+        .any(|grant| grant.id == next && grant.resets_left > 0)
+        .then_some(next)
+}
+
+/// `Some("")` is claimable with no window names. `None` is not claimable.
+pub(crate) fn confirm_detail(status: &GrantStatus) -> Option<String> {
+    let id = claimable_id(status)?;
+    let grant = status.grants.iter().find(|grant| grant.id == id)?;
+    let names: Vec<&str> = grant
+        .clears
+        .iter()
+        .filter_map(|window| match window.as_str() {
+            "five_hour" => Some("session"),
+            "seven_day" => Some("weekly"),
+            _ => None,
+        })
+        .collect();
+    if names.is_empty() {
+        Some(String::new())
+    } else {
+        Some(format!(
+            "Refills your {} limits now. This can't be undone.",
+            names.join(" and ")
+        ))
+    }
+}
+
+pub(crate) fn reset_claim_outcome(response: &HttpResponse) -> crate::claims::ClaimOutcome {
+    use crate::claims::{ClaimFailure, ClaimOutcome};
+    if response.status == 403 && String::from_utf8_lossy(&response.body).contains("scope requirement") {
+        return ClaimOutcome::Failed(ClaimFailure::NotPermitted);
+    }
+    if ProviderError::is_auth_failure(response) {
+        return ClaimOutcome::Failed(ClaimFailure::SignInExpired);
+    }
+    let Some(body) = response
+        .is_success()
+        .then(|| response.json())
+        .flatten()
+        .filter(|value| value.is_object())
+    else {
+        return ClaimOutcome::Failed(ClaimFailure::Refused);
+    };
+    let Some(result) = body.get("result").and_then(Value::as_str) else {
+        return ClaimOutcome::Failed(ClaimFailure::Refused);
+    };
+    let until = claude_reset(body.get("cooldown_until"));
+    if result == "unavailable" {
+        return body
+            .get("reason")
+            .and_then(Value::as_str)
+            .and_then(|reason| claim_code(reason, until))
+            .unwrap_or(ClaimOutcome::Failed(ClaimFailure::Refused));
+    }
+    claim_code(result, until).unwrap_or(ClaimOutcome::Failed(ClaimFailure::Refused))
+}
+
+fn claim_code(code: &str, until: Option<DateTime<Utc>>) -> Option<crate::claims::ClaimOutcome> {
+    use crate::claims::ClaimOutcome;
+    Some(match code {
+        "reset" | "already_used" => ClaimOutcome::Success,
+        "not_limited" => ClaimOutcome::NothingToReset,
+        "ineligible" | "no_grant" | "unknown_grant" | "not_next_grant" => ClaimOutcome::NoCredit,
+        "reset_unconfirmed" | "stamp_indeterminate" => ClaimOutcome::Unconfirmed,
+        "cooldown" | "paused" | "low_priority_active" => ClaimOutcome::UnavailableNow { until },
+        _ => return None,
+    })
 }
 
 /// `organization_type` drops a leading `claude_`. Max 20x and anything Ultra read as Ultra.
@@ -198,9 +281,15 @@ fn parse_status(value: Option<&Value>) -> Option<GrantStatus> {
             grants.push(grant);
         }
     }
+    let next_grant_id = object
+        .get("next_grant_id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
     Some(GrantStatus {
         eligible: object.get("eligible").and_then(Value::as_bool) == Some(true),
         grants,
+        next_grant_id,
     })
 }
 
@@ -214,7 +303,21 @@ fn parse_grant(value: &Value) -> Option<StoredGrant> {
         id: id.to_string(),
         resets_left: left.max(0),
         ends_at: claude_reset(value.get("ends_at")),
+        clears: grant_clears(value),
     })
+}
+
+fn grant_clears(value: &Value) -> Vec<String> {
+    let Some(items) = value.get("clears").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    if items.iter().any(|item| !item.is_string()) {
+        return Vec::new();
+    }
+    items
+        .iter()
+        .filter_map(|item| item.as_str().map(str::to_string))
+        .collect()
 }
 
 fn json_object(body: &[u8]) -> Result<Value, ProviderError> {

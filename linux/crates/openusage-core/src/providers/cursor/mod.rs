@@ -181,7 +181,7 @@ fn assemble(
             mapped.lines.push(line);
         }
     }
-    history::append_lines(ctx, access_token, &mut mapped.lines);
+    history::append_lines(ctx, access_token, &mut mapped);
     Ok(mapped)
 }
 

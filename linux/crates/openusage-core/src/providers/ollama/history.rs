@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 
 use crate::http::{HttpClient, HttpRequest};
 use crate::log;
-use crate::metric::{MetricKind, MetricLine, MetricValue};
+use crate::metric::{BreakdownModel, MetricKind, MetricLine, MetricValue, ProviderUsage, UsageBreakdown};
 use crate::provider::FetchContext;
 
 const HISTORY: &str = "history";
@@ -30,10 +30,25 @@ struct Ledger {
     partial_day: Option<i64>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct StoredModel {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dollars: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tokens: Option<f64>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct StoredDay {
     day: i64,
     measures: BTreeMap<String, f64>,
+    #[serde(default)]
+    models: BTreeMap<String, StoredModel>,
+}
+
+struct ReadDay {
+    measures: BTreeMap<String, f64>,
+    models: BTreeMap<String, StoredModel>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -42,9 +57,11 @@ pub struct ParsedDay {
     pub by_model: Option<BTreeMap<String, BTreeMap<String, f64>>>,
 }
 
-pub fn append(ctx: &mut FetchContext, api_key: &str, lines: &mut Vec<MetricLine>) {
+pub fn append(ctx: &mut FetchContext, api_key: &str, usage: &mut ProviderUsage) {
     let ledger = refresh(ctx, api_key);
-    lines.extend(history_lines(&ledger, ctx.now));
+    let (lines, breakdowns) = history_lines(&ledger, ctx.now);
+    usage.lines.extend(lines);
+    usage.breakdowns.extend(breakdowns);
 }
 
 fn refresh(ctx: &mut FetchContext, api_key: &str) -> Ledger {
@@ -85,19 +102,15 @@ fn due_days(ledger: &Ledger, span: &[i64]) -> Vec<i64> {
     due
 }
 
-fn record(
-    ledger: &mut Ledger,
-    read: &BTreeMap<i64, BTreeMap<String, f64>>,
-    due: &[i64],
-    span: &[i64],
-) {
+fn record(ledger: &mut Ledger, read: &BTreeMap<i64, ReadDay>, due: &[i64], span: &[i64]) {
     ledger
         .days
         .retain(|stored| span.contains(&stored.day) && !due.contains(&stored.day));
-    for (day, measures) in read {
+    for (day, read) in read {
         ledger.days.push(StoredDay {
             day: *day,
-            measures: measures.clone(),
+            measures: read.measures.clone(),
+            models: read.models.clone(),
         });
     }
     ledger.partial_day = span.first().copied();
@@ -109,7 +122,7 @@ fn read_usage(
     due: &[i64],
     today: i64,
     card: &str,
-) -> BTreeMap<i64, BTreeMap<String, f64>> {
+) -> BTreeMap<i64, ReadDay> {
     let tag = "plugin:ollama";
     if due.is_empty() {
         return BTreeMap::new();
@@ -145,33 +158,87 @@ fn read_usage(
     };
     due.iter()
         .map(|day| {
+            let parsed = parsed.get(day);
             (
                 *day,
-                parsed
-                    .get(day)
-                    .map(|parsed| parsed.totals.clone())
-                    .unwrap_or_default(),
+                ReadDay {
+                    measures: parsed.map(|day| day.totals.clone()).unwrap_or_default(),
+                    models: parsed.map(stored_models).unwrap_or_default(),
+                },
             )
         })
         .collect()
 }
 
-fn history_lines(ledger: &Ledger, now: DateTime<Utc>) -> Vec<MetricLine> {
+fn stored_models(parsed: &ParsedDay) -> BTreeMap<String, StoredModel> {
+    let Some(models) = &parsed.by_model else {
+        return BTreeMap::new();
+    };
+    models
+        .iter()
+        .map(|(name, measures)| {
+            (
+                name.clone(),
+                StoredModel {
+                    dollars: measures.get("usage").copied(),
+                    tokens: measures.get("tokens").copied(),
+                },
+            )
+        })
+        .collect()
+}
+
+fn history_lines(
+    ledger: &Ledger,
+    now: DateTime<Utc>,
+) -> (Vec<MetricLine>, BTreeMap<String, UsageBreakdown>) {
     let today = midnight(now).timestamp();
     let mut lines = Vec::new();
-    if let Some(line) = window_line("Today", sum(ledger, today, 0, 0)) {
-        lines.push(line);
-    }
-    if let Some(line) = window_line("Yesterday", sum(ledger, today, 1, 1)) {
-        lines.push(line);
-    }
-    if let Some(line) = window_line("Last 30 Days", sum(ledger, today, 0, 29)) {
-        lines.push(line);
+    let mut breakdowns = BTreeMap::new();
+    for (label, key, first, last) in [
+        ("Today", "today", 0, 0),
+        ("Yesterday", "yesterday", 1, 1),
+        ("Last 30 Days", "last30", 0, 29),
+    ] {
+        if let Some(line) = window_line(label, sum(ledger, today, first, last)) {
+            lines.push(line);
+            if let Some(breakdown) = UsageBreakdown::ranked(model_window(ledger, today, first, last)) {
+                breakdowns.insert(key.to_string(), breakdown);
+            }
+        }
     }
     if let Some(line) = requests_line(sum(ledger, today, 0, 29)) {
         lines.push(line);
     }
-    lines
+    (lines, breakdowns)
+}
+
+fn model_window(ledger: &Ledger, today: i64, first: i64, last: i64) -> Vec<BreakdownModel> {
+    let mut models: BTreeMap<String, StoredModel> = BTreeMap::new();
+    for offset in first..=last {
+        let day = today - offset * DAY;
+        let Some(stored) = ledger.days.iter().find(|stored| stored.day == day) else { continue };
+        for (name, model) in &stored.models {
+            let slot = models.entry(name.clone()).or_default();
+            add_optional(&mut slot.dollars, model.dollars);
+            add_optional(&mut slot.tokens, model.tokens);
+        }
+    }
+    models
+        .into_iter()
+        .map(|(name, model)| BreakdownModel {
+            name,
+            dollars: model.dollars,
+            tokens: model.tokens,
+            share: None,
+        })
+        .collect()
+}
+
+fn add_optional(slot: &mut Option<f64>, value: Option<f64>) {
+    if let Some(value) = value {
+        *slot = Some(slot.unwrap_or(0.0) + value);
+    }
 }
 
 fn sum(ledger: &Ledger, today: i64, first: i64, last: i64) -> Option<BTreeMap<String, f64>> {
@@ -328,119 +395,5 @@ fn json_number(value: &Value) -> Option<f64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn measure(day: &ParsedDay, key: &str) -> f64 {
-        day.totals.get(key).copied().unwrap_or(f64::NAN)
-    }
-
-    #[test]
-    fn days_parse_buckets_and_any_malformed_bucket_rejects_the_read() {
-        let documented = r#"{"granularity":"day","buckets":[{"from":"2026-09-30T00:00:00Z","until":"2026-10-01T00:00:00Z","request_count":8,"usage_usd":0.0166,"input_tokens":52000,"cached_input_tokens":30000,"output_tokens":7000,"groups":[
-            {"model":"glm-5.3-flash","request_count":6,"usage_usd":0.0066,"input_tokens":48000,"cached_input_tokens":30000,"output_tokens":6000},
-            {"model":"glm-5.3","request_count":2,"usage_usd":0.01,"input_tokens":4000,"cached_input_tokens":0,"output_tokens":1000}
-        ]}]}"#;
-        let day_key = parse_time("2026-09-30T00:00:00Z").unwrap().timestamp();
-        let parsed = days(documented.as_bytes())
-            .unwrap()
-            .remove(&day_key)
-            .unwrap();
-        assert_eq!(measure(&parsed, "requests"), 8.0);
-        assert!((measure(&parsed, "usage") - 0.0166).abs() < 1e-9);
-        assert_eq!(measure(&parsed, "tokens"), 59_000.0);
-        assert_eq!(measure(&parsed, "input"), 52_000.0);
-        assert_eq!(measure(&parsed, "cache"), 30_000.0);
-        assert_eq!(measure(&parsed, "output"), 7_000.0);
-        assert_eq!(
-            parsed
-                .by_model
-                .as_ref()
-                .unwrap()
-                .get("glm-5.3")
-                .unwrap()
-                .get("tokens")
-                .copied(),
-            Some(5_000.0)
-        );
-
-        let legacy = r#"{"granularity":"day","buckets":[{"from":"2026-09-30T00:00:00Z","until":"2026-10-01T00:00:00Z","request_count":3}]}"#;
-        let legacy = days(legacy.as_bytes()).unwrap().remove(&day_key).unwrap();
-        assert_eq!(legacy.totals, BTreeMap::from([("requests".into(), 3.0)]));
-
-        let unsplit = r#"{"granularity":"day","buckets":[{"from":"2026-09-30T00:00:00Z","until":"2026-10-01T00:00:00Z","request_count":9,"groups":[{"model":"a","request_count":1}],"remainder":{"request_count":8}}]}"#;
-        assert!(days(unsplit.as_bytes())
-            .unwrap()
-            .remove(&day_key)
-            .unwrap()
-            .by_model
-            .is_none());
-
-        let empty_groups = r#"{"granularity":"day","buckets":[{"from":"2026-09-30T00:00:00Z","until":"2026-10-01T00:00:00Z","request_count":0,"groups":[]}]}"#;
-        assert_eq!(
-            days(empty_groups.as_bytes())
-                .unwrap()
-                .remove(&day_key)
-                .unwrap()
-                .by_model,
-            Some(BTreeMap::new())
-        );
-
-        let day = r#""from":"2026-09-30T00:00:00Z","until":"2026-10-01T00:00:00Z""#;
-        for bucket in [
-            format!(r#"{{{day}}}"#),
-            format!(r#"{{{day},"request_count":-1}}"#),
-            format!(r#"{{{day},"request_count":1,"usage_usd":"lots"}}"#),
-            format!(r#"{{{day},"request_count":1,"groups":[{{"request_count":1}}]}}"#),
-            format!(
-                r#"{{{day},"request_count":2,"groups":[{{"model":"a","request_count":1}},{{"model":"a","request_count":1}}]}}"#
-            ),
-            r#"{"from":"2026-09-30T02:00:00Z","until":"2026-09-30T03:00:00Z","request_count":1}"#
-                .into(),
-            r#"{"from":"2026-09-30T00:00:00Z","until":"2026-10-02T00:00:00Z","request_count":1}"#
-                .into(),
-            format!(r#"{{{day},"request_count":1}},{{{day},"request_count":1}}"#),
-        ] {
-            assert!(
-                days(format!(r#"{{"granularity":"day","buckets":[{bucket}]}}"#).as_bytes())
-                    .is_none(),
-                "{bucket}"
-            );
-        }
-        assert!(days(br#"{"granularity":"hour","buckets":[{"from":"2026-09-30T00:00:00Z","until":"2026-10-01T00:00:00Z","request_count":1}]}"#).is_none());
-    }
-
-    #[test]
-    fn a_successful_read_covers_omitted_days_without_inventing_figures() {
-        let now = DateTime::from_timestamp(1_793_392_200, 0).unwrap();
-        let today = midnight(now).timestamp();
-        let yesterday = today - DAY;
-        let body = format!(
-            r#"{{"granularity":"day","buckets":[{{"from":"{}","until":"{}","request_count":3}}]}}"#,
-            stamp(yesterday),
-            stamp(yesterday + DAY)
-        );
-        let parsed = days(body.as_bytes()).unwrap();
-        let covered: BTreeMap<_, _> = [today, yesterday]
-            .into_iter()
-            .map(|day| {
-                (
-                    day,
-                    parsed
-                        .get(&day)
-                        .map(|parsed| parsed.totals.clone())
-                        .unwrap_or_default(),
-                )
-            })
-            .collect();
-        assert!(covered[&today].is_empty());
-        assert_eq!(covered[&yesterday].get("requests").copied(), Some(3.0));
-    }
-
-    fn stamp(seconds: i64) -> String {
-        DateTime::from_timestamp(seconds, 0)
-            .unwrap()
-            .format("%Y-%m-%dT%H:%M:%SZ")
-            .to_string()
-    }
-}
+#[path = "history_tests.rs"]
+mod tests;

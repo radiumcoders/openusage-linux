@@ -1,20 +1,44 @@
 //! ChatGPT's daily reports. A report with any malformed day is rejected whole.
-//! Port of `CodexUsageReports`. Credit amounts are validated so a bad report is a failed read;
-//! the history rows show token counts only.
+//! Port of `CodexUsageReports`. Token rows use the day totals; model turns and credits feed the
+//! history hover.
 
 use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+#[derive(Clone, Debug, Default)]
+pub(super) struct CountModel {
+    pub tokens: Option<f64>,
+    pub turns: f64,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct CountedDay {
+    pub tokens: Option<f64>,
+    pub turns: f64,
+    pub models: BTreeMap<String, CountModel>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct CreditDay {
+    pub total: f64,
+    pub models: BTreeMap<String, f64>,
+}
+
 /// Days keyed by `yyyy-MM-dd`. `Some` is `text_total_tokens` (including zero); `None` is a day
 /// the report named without a token total.
+#[cfg(test)]
 pub(super) fn counts(body: &[u8]) -> Option<BTreeMap<String, Option<f64>>> {
+    Some(counted(body)?.into_iter().map(|(date, day)| (date, day.tokens)).collect())
+}
+
+pub(super) fn counted(body: &[u8]) -> Option<BTreeMap<String, CountedDay>> {
     let records = records(body)?;
     let mut days = BTreeMap::new();
     for record in records {
         let date = date(&record)?;
         let totals = record.get("totals")?.as_object()?;
-        count(totals.get("turns"))?;
+        let turns = count(totals.get("turns"))?;
         let tokens = match totals.get("text_total_tokens") {
             None | Some(Value::Null) => None,
             Some(value) => Some(count(Some(value))?),
@@ -28,38 +52,68 @@ pub(super) fn counts(body: &[u8]) -> Option<BTreeMap<String, Option<f64>>> {
                 count(Some(value))?;
             }
         }
-        add(&mut days, date, tokens);
+        add_counted(&mut days, date, CountedDay { tokens, turns, models: count_models(&record) });
     }
     Some(days)
 }
 
 /// `Some` when the workspace credits report is usable, including one that charges nothing.
-/// `None` rejects the whole report.
+/// `None` rejects the whole report. A report that charges nothing has no days.
+#[cfg(test)]
 pub(super) fn workspace_credits(body: &[u8]) -> Option<()> {
+    workspace_models(body).map(|_| ())
+}
+
+pub(super) fn workspace_models(body: &[u8]) -> Option<BTreeMap<String, CreditDay>> {
     let records = records(body)?;
+    let mut days = BTreeMap::new();
     for record in records {
-        date(&record)?;
+        let date = date(&record)?;
         let Some(premium) = record
             .pointer("/premium_usage_values/credit_usage_credits")
             .filter(|value| value.is_object())
         else {
-            return Some(());
+            return Some(BTreeMap::new());
         };
-        numbers(premium)?;
+        let charged = number_map(premium)?;
+        let mut models = BTreeMap::new();
+        if let Some(entries) = record.get("models").and_then(Value::as_array) {
+            for model in entries.iter().filter_map(Value::as_object) {
+                let Some(credits) = num(model.get("on_demand_credits")) else { continue };
+                let name = model.get("model").and_then(Value::as_str).unwrap_or("Unknown");
+                *models.entry(name.to_string()).or_insert(0.0) += credits;
+            }
+        }
+        add_credits(
+            &mut days,
+            date,
+            CreditDay { total: charged.values().sum(), models },
+        );
     }
-    Some(())
+    Some(days)
 }
 
+#[cfg(test)]
 pub(super) fn enterprise_credits(body: &[u8]) -> Option<()> {
+    enterprise_models(body).map(|_| ())
+}
+
+pub(super) fn enterprise_models(body: &[u8]) -> Option<BTreeMap<String, CreditDay>> {
     let records = records(body)?;
+    let mut days = BTreeMap::new();
     for record in records {
-        date(&record)?;
+        let date = date(&record)?;
         let Some(values) = record.get("values").filter(|value| value.is_object()) else {
-            return Some(());
+            return Some(BTreeMap::new());
         };
-        numbers(values)?;
+        let models = number_map(values)?;
+        add_credits(
+            &mut days,
+            date,
+            CreditDay { total: models.values().sum(), models },
+        );
     }
-    Some(())
+    Some(days)
 }
 
 fn records(body: &[u8]) -> Option<Vec<Value>> {
@@ -73,25 +127,70 @@ fn date(record: &Value) -> Option<String> {
     (date.len() >= 10).then(|| date[..10].to_string())
 }
 
-fn add(days: &mut BTreeMap<String, Option<f64>>, date: String, tokens: Option<f64>) {
-    days.entry(date)
-        .and_modify(|existing| {
-            *existing = match (*existing, tokens) {
+fn add_counted(days: &mut BTreeMap<String, CountedDay>, date: String, day: CountedDay) {
+    if let Some(existing) = days.get_mut(&date) {
+        existing.tokens = match (existing.tokens, day.tokens) {
+            (Some(left), Some(right)) => Some(left + right),
+            (Some(left), None) => Some(left),
+            (None, Some(right)) => Some(right),
+            (None, None) => None,
+        };
+        existing.turns += day.turns;
+        for (name, model) in day.models {
+            let slot = existing.models.entry(name).or_default();
+            slot.tokens = match (slot.tokens, model.tokens) {
                 (Some(left), Some(right)) => Some(left + right),
                 (Some(left), None) => Some(left),
                 (None, Some(right)) => Some(right),
                 (None, None) => None,
             };
-        })
-        .or_insert(tokens);
+            slot.turns += model.turns;
+        }
+    } else {
+        days.insert(date, day);
+    }
 }
 
-fn numbers(amounts: &Value) -> Option<()> {
+fn add_credits(days: &mut BTreeMap<String, CreditDay>, date: String, day: CreditDay) {
+    if let Some(existing) = days.get_mut(&date) {
+        existing.total += day.total;
+        for (name, credits) in day.models {
+            *existing.models.entry(name).or_insert(0.0) += credits;
+        }
+    } else {
+        days.insert(date, day);
+    }
+}
+
+fn count_models(record: &Value) -> BTreeMap<String, CountModel> {
+    let Some(models) = record.get("models").and_then(Value::as_array) else {
+        return BTreeMap::new();
+    };
+    if models.is_empty() || models.iter().any(|model| !model.is_object()) {
+        return BTreeMap::new();
+    }
+    let mut totals = BTreeMap::new();
+    for model in models {
+        let object = model.as_object().unwrap();
+        let name = object.get("model").and_then(Value::as_str).unwrap_or("Unknown");
+        let slot: &mut CountModel = totals.entry(name.to_string()).or_default();
+        if let Some(turns) = count(object.get("turns")) {
+            slot.turns += turns;
+        }
+        if let Some(tokens) = count(object.get("text_total_tokens")) {
+            slot.tokens = Some(slot.tokens.unwrap_or(0.0) + tokens);
+        }
+    }
+    totals
+}
+
+fn number_map(amounts: &Value) -> Option<BTreeMap<String, f64>> {
     let amounts = amounts.as_object()?;
-    amounts
-        .values()
-        .all(|value| num(Some(value)).is_some())
-        .then_some(())
+    let mut numbers = BTreeMap::new();
+    for (key, value) in amounts {
+        numbers.insert(key.clone(), num(Some(value))?);
+    }
+    Some(numbers)
 }
 
 fn count(value: Option<&Value>) -> Option<f64> {

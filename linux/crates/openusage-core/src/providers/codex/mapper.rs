@@ -1,5 +1,5 @@
 //! ChatGPT usage mapping. Port of `CodexUsageMapper`.
-//! Credits are priced at 4¢, the one estimate the app allows. Reset credits are read, not claimed.
+//! Credits are priced at 4¢, the one estimate the app allows. `claims` spends a reset credit.
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde_json::Value;
@@ -47,6 +47,7 @@ pub(super) fn map_usage(
                 "available",
             )],
             expiries_at: resets.expiries,
+            detail: None,
         });
     }
     if let Some(remaining) = read_credits_remaining(response, &body) {
@@ -204,6 +205,50 @@ fn read_reset_credits(body: &Value, reset_credits: Option<&HttpResponse>) -> Opt
     };
     let expiries = source.map(available_expiries).unwrap_or_default();
     Some(Resets { count, expiries })
+}
+
+/// The available credit whose expiry is within a second of `expiring_at`.
+pub(crate) fn reset_credit_id(body: &[u8], expiring_at: DateTime<Utc>) -> Option<String> {
+    let root = json_object(body).ok()?;
+    let credits = root.get("credits").and_then(Value::as_array)?;
+    for credit in credits {
+        match credit.get("status").and_then(Value::as_str) {
+            None | Some("available") => {}
+            Some(_) => continue,
+        }
+        let expiry = parse_expiry(credit.get("expires_at"))?;
+        if (expiry - expiring_at).num_milliseconds().unsigned_abs() >= 1000 {
+            continue;
+        }
+        return credit
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string);
+    }
+    None
+}
+
+pub(crate) fn reset_claim_outcome(response: &HttpResponse) -> crate::claims::ClaimOutcome {
+    use crate::claims::{ClaimFailure, ClaimOutcome};
+    if ProviderError::is_auth_failure(response) {
+        return ClaimOutcome::Failed(ClaimFailure::SignInExpired);
+    }
+    let Some(code) = response
+        .is_success()
+        .then(|| response.json())
+        .flatten()
+        .filter(|value| value.is_object())
+        .and_then(|body| body.get("code").and_then(Value::as_str).map(str::to_string))
+    else {
+        return ClaimOutcome::Failed(ClaimFailure::Refused);
+    };
+    match code.as_str() {
+        "reset" | "already_redeemed" => ClaimOutcome::Success,
+        "nothing_to_reset" => ClaimOutcome::NothingToReset,
+        "no_credit" => ClaimOutcome::NoCredit,
+        _ => ClaimOutcome::Failed(ClaimFailure::Refused),
+    }
 }
 
 fn available_count(source: &Value) -> Option<i64> {

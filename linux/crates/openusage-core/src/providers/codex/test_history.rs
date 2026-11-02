@@ -13,6 +13,11 @@ fn a_personal_plan_shows_token_rows_and_rereads_on_the_hour_a_new_day_and_a_forc
             ("Last 30 Days".into(), 2_014_940_056.0)
         ]
     );
+    let models = &usage.breakdowns["last30"].models;
+    assert_eq!(models.iter().map(|model| model.name.as_str()).collect::<Vec<_>>(), ["gpt-6.1-sol", "gpt-6-astra"]);
+    assert!(models.iter().all(|model| model.dollars.is_none() && model.tokens.is_none()));
+    assert!((models[0].share.unwrap() - 55.0 / 478.0).abs() < 1e-9);
+    assert!((models[1].share.unwrap() - 31.0 / 478.0).abs() < 1e-9);
     assert_eq!(
         history_paths(&script),
         vec!["/backend-api/wham/analytics/daily-workspace-usage-counts".to_string()]
@@ -81,7 +86,7 @@ fn history_requests_use_the_due_range_and_a_team_plan_also_reads_credits() {
         let body = if path.ends_with("/usage") {
             USAGE.replace("\"pro\"", "\"team\"")
         } else if path.contains("token-usage-breakdown") {
-            r#"{"data":[{"date":"2026-10-30","premium_usage_values":{"credit_usage_credits":{"cli":4.0}}}]}"#.into()
+            r#"{"data":[{"date":"2026-10-30","premium_usage_values":{"credit_usage_credits":{"cli":12.5}},"models":[{"model":"gpt-6-astra","on_demand_credits":10.0},{"model":"gpt-6.1-sol","on_demand_credits":2.5}]}]}"#.into()
         } else if path.contains("analytics") {
             COUNTS.into()
         } else {
@@ -102,6 +107,10 @@ fn history_requests_use_the_due_range_and_a_team_plan_also_reads_credits() {
     };
     let usage = provider().fetch(&mut ctx).unwrap();
     assert_eq!(token_rows(&usage)[1], ("Yesterday".into(), 8_139_475.0));
+    let yesterday = &usage.breakdowns["yesterday"].models;
+    assert_eq!(yesterday.iter().map(|model| model.name.as_str()).collect::<Vec<_>>(), ["gpt-6-astra", "gpt-6.1-sol"]);
+    assert!((yesterday[0].share.unwrap() - 0.8).abs() < 1e-9);
+    assert!((yesterday[1].share.unwrap() - 0.2).abs() < 1e-9);
     let urls = urls.lock().unwrap();
     let counts = urls
         .iter()

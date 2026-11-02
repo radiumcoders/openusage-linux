@@ -1,13 +1,13 @@
 //! ChatGPT provider. Port of `Sources/OpenUsage/Providers/Codex` and `CodexLogin`.
 //!
-//! Reset credits are read, not claimed. The hourly rest of history follows a user refresh
+//! Reset credits are read here; `claims` spends one. The hourly rest of history follows a user refresh
 //! (`FetchContext::force`); the Mac app can also force a provider read without rereading history.
 
 #[path = "login.rs"]
 mod auth;
-mod client;
+pub(crate) mod client;
 mod history;
-mod mapper;
+pub(crate) mod mapper;
 mod reports;
 
 #[cfg(test)]
@@ -51,15 +51,17 @@ fn fetch(ctx: &mut FetchContext) -> Result<ProviderUsage, ProviderError> {
         .filter(|id| !id.is_empty());
     let reset_credits = reset_credits(ctx, &tokens.access_token, account_id, &response);
     let mut mapped = mapper::map_usage(&response, reset_credits.as_ref(), ctx.now)?;
+    let mut breakdowns = Default::default();
     history::attach(
         ctx,
         &tokens.access_token,
         account_id,
         &response.body,
         &mut mapped.lines,
+        &mut breakdowns,
     );
     Ok(ProviderUsage {
-        breakdowns: Default::default(),
+        breakdowns,
         plan: mapped.plan,
         lines: mapped.lines,
         notice: None,
