@@ -23,6 +23,8 @@ public enum OpenUsageLinuxCommand {
                 return await refresh()
             case .waybar(let once, let icon):
                 return await WaybarDaemon.run(once: once, icon: icon)
+            case .alerts(let change):
+                return alerts(change)
             }
         } catch let error as LinuxUsageError {
             LinuxText.error("\(error.message)\nRun 'openusage --help' for usage.")
@@ -45,7 +47,7 @@ public enum OpenUsageLinuxCommand {
             FileHandle.standardOutput.write(result.data)
             FileHandle.standardOutput.write(Data("\n".utf8))
             guard result.hasSnapshots else {
-                LinuxText.error("nothing fetched yet; open OpenUsage and add or refresh an account")
+                LinuxText.error("nothing fetched yet; add an account with 'openusage add <provider>' or run 'openusage refresh'")
                 return 4
             }
             return 0
@@ -146,6 +148,13 @@ public enum OpenUsageLinuxCommand {
         return failed ? 1 : 0
     }
 
+    private static func alerts(_ change: (on: Bool, milestones: [PaceMilestone])?) -> Int32 {
+        let defaults = FileBackedUserDefaults.openUsage()
+        if let change { LinuxAlerts.set(change.milestones, on: change.on, in: defaults) }
+        for line in LinuxAlerts.list(defaults) { LinuxText.line(line) }
+        return 0
+    }
+
     @MainActor
     private static func account(_ token: String, in store: AccountStore) -> Account? {
         let token = token.lowercased()
@@ -165,6 +174,7 @@ public enum OpenUsageLinuxCommand {
                openusage rename <account-id> <name>
                openusage refresh
                openusage waybar [--once] [--icon <text>]
+               openusage alerts [on|off [under-10|under-30|running-out ...]]
 
         With no command, print the usage last fetched as openusage.limits.v2 JSON.
 
@@ -181,17 +191,15 @@ public enum OpenUsageLinuxCommand {
           refresh      Fetch every account now.
           waybar       Print Waybar JSON lines. Refreshes on start and every 5 minutes.
                        --once prints the cache and exits. --icon is the text used when
-                       nothing is running out (default: a gauge glyph).
+                       nothing is running out (default: a gauge glyph). A click on the
+                       module (SIGUSR1) refreshes every account now.
+          alerts       List the desktop notification switches, or turn them on or off
+                       (all of them when none is named). All start off.
 
         Files:
           \(OpenUsagePaths.settingsFile.path)
           \(OpenUsagePaths.snapshotsFile.path)
           \(OpenUsagePaths.waybarPID.path)
-
-        Alerts are off until settings.plist sets one of these keys to true:
-          openusage.notifications.underTenPercent
-          openusage.notifications.healthyToClose
-          openusage.notifications.closeToRunningOut
 
         Options:
           --force      Accepted when printing usage, then ignored.
@@ -271,6 +279,14 @@ enum LinuxCommandLine {
             guard positionals.count == 1 else { throw LinuxUsageError(message: "refresh takes no arguments.") }
             try unexpected(force: force, once: once, organization: organization, icon: icon)
             return .refresh
+        case "alerts":
+            try unexpected(force: force, once: once, organization: organization, icon: icon)
+            guard positionals.count > 1 else { return .alerts(nil) }
+            guard positionals[1] == "on" || positionals[1] == "off" else {
+                throw LinuxUsageError(message: "alerts takes on or off, then optional alert names.")
+            }
+            let milestones = try LinuxAlerts.milestones(named: Array(positionals.dropFirst(2)))
+            return .alerts((on: positionals[1] == "on", milestones: milestones))
         case "waybar":
             guard positionals.count == 1 else { throw LinuxUsageError(message: "waybar takes no arguments.") }
             try unexpected(force: force, once: once, organization: organization, icon: icon, allowOnce: true, allowIcon: true)
@@ -302,4 +318,5 @@ enum LinuxCommand {
     case rename(accountID: String, name: String)
     case refresh
     case waybar(once: Bool, icon: String)
+    case alerts((on: Bool, milestones: [PaceMilestone])?)
 }
