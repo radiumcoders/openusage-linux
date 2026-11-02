@@ -52,9 +52,9 @@ Merge [contrib/waybar/config.jsonc](../contrib/waybar/config.jsonc) into the Way
 [contrib/waybar/style.css](../contrib/waybar/style.css) into the Waybar stylesheet.
 
 `openusage waybar` stays running and prints one JSON object per line (`return-type: json`) on each
-update. It refreshes every 5 minutes. `SIGUSR1` refreshes every account now; the sample module's left
-click sends that signal. Right-click opens a terminal on `openusage accounts`, using `xdg-terminal-exec` when it
-is installed.
+update. It refreshes every 5 minutes. A left click runs `openusage waybar --refresh`, which asks the running module
+to refresh every account now (`SIGUSR1`). A right click lists the accounts in a terminal opened with
+`xdg-terminal-exec`.
 
 `--once` prints one line from the saved snapshots and exits, without refreshing. When no limit is running
 low, the module shows only an icon, as the Mac menu bar shows only the app icon; `--icon <text>` replaces
@@ -70,9 +70,10 @@ that icon (a Nerd Font gauge by default).
 
 ## Hyprland
 
-[contrib/hyprland/openusage.conf](../contrib/hyprland/openusage.conf) floats a terminal whose title is
-`openusage`, for `openusage add` and the Waybar right-click. Launch a sign-in with that title, for
-example `kitty --title openusage -e openusage add claude`.
+[contrib/hyprland/openusage.lua](../contrib/hyprland/openusage.lua) (Hyprland 0.55 and later, Lua config)
+or [openusage.conf](../contrib/hyprland/openusage.conf) (earlier versions) floats a terminal whose title
+is `openusage`, for `openusage add` and the Waybar right-click. Launch a sign-in with that title, for
+example `xdg-terminal-exec --title=openusage openusage add claude`.
 
 ## Commands
 
@@ -87,6 +88,7 @@ example `kitty --title openusage -e openusage add claude`.
 | `openusage rename <account-id> <name>` | Rename an account. |
 | `openusage refresh` | Refresh every account once. |
 | `openusage waybar [--once] [--icon <text>]` | Print Waybar JSON. Without `--once`, keep running. |
+| `openusage waybar --refresh` | Ask the running module to refresh every account now. Exits 1 when it is not running. |
 | `openusage alerts` | List the quota alert switches. |
 | `openusage alerts on\|off [under-10\|under-30\|running-out …]` | Turn alerts on or off; all of them when none is named. |
 
@@ -110,7 +112,7 @@ each account yourself.
 `openusage waybar` refreshes every account every 5 minutes, the same interval as the Mac app. At launch
 (Waybar restarts it on every config reload) an account read within the last interval keeps its saved
 reading. `add`, `remove`, and `rename` tell the running module to reload its accounts, and it fetches
-only the account that is new. A left click, `SIGUSR1`, or `openusage refresh` refreshes every account
+only the account that is new. A left click (`openusage waybar --refresh`) or `openusage refresh` refreshes every account
 once, ahead of that interval. A failed
 fetch keeps the last good snapshot. `class` includes `stale` once a snapshot is older than two
 intervals (10 minutes): the same moment the Mac app shows a clock and the limits JSON sets

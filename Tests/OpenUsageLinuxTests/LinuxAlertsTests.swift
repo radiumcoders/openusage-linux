@@ -42,3 +42,14 @@ final class LinuxAlertsTests: XCTestCase {
         XCTAssertEqual(LinuxAlerts.list(defaults).last?.hasPrefix("running-out\ton\t"), true)
     }
 }
+
+final class WaybarRefreshArgumentTests: XCTestCase {
+    func testRefreshAsksTheRunningModule() throws {
+        guard case .waybarRefresh = try LinuxCommandLine.parse(["waybar", "--refresh"]) else { return XCTFail("expected waybarRefresh") }
+    }
+
+    func testRefreshOutsideWaybarOrWithOtherOptionsIsRejected() {
+        XCTAssertThrowsError(try LinuxCommandLine.parse(["accounts", "--refresh"]))
+        XCTAssertThrowsError(try LinuxCommandLine.parse(["waybar", "--refresh", "--once"]))
+    }
+}

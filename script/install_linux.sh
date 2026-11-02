@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the Linux openusage binary and install it to ~/.local/bin.
-# Swift 6.2 on PATH is used when it is there; otherwise mise's swift@6.2.
+# Needs Swift 6.2 on PATH (see docs/linux.md).
 # --disable-automatic-resolution keeps Package.resolved in place. A plain
 # `swift build` on Linux deletes it and drops the Mac app's package pins.
 set -euo pipefail
@@ -10,14 +10,11 @@ cd "$root"
 
 args=(build -c release --static-swift-stdlib --disable-automatic-resolution)
 
-if command -v swift >/dev/null 2>&1 && swift --version 2>/dev/null | grep -q 'Swift version 6\.2'; then
-  swift "${args[@]}"
-elif command -v mise >/dev/null 2>&1; then
-  mise exec swift@6.2 -- swift "${args[@]}"
-else
-  echo "error: Swift 6.2 is not on PATH and mise is not available. Install Swift 6.2, or install mise, then retry." >&2
+if ! command -v swift >/dev/null 2>&1 || ! swift --version 2>/dev/null | grep -q 'Swift version 6\.2'; then
+  echo "error: Swift 6.2 is not on PATH. Install it first; docs/linux.md lists the options for Arch." >&2
   exit 1
 fi
+swift "${args[@]}"
 
 dest="${HOME}/.local/bin"
 mkdir -p "$dest"

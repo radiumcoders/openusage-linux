@@ -1,11 +1,11 @@
 // Merge this key into the Waybar config, and add "custom/openusage" to a modules-* list.
-// Left click forces a refresh. Right click opens `openusage accounts` in a terminal,
-// using xdg-terminal-exec when it is installed.
+// Left click refreshes every account now. Right click lists the accounts in a floating terminal
+// (titled "openusage"; see contrib/hyprland) through xdg-terminal-exec.
 {
   "custom/openusage": {
     "exec": "openusage waybar",
     "return-type": "json",
-    "on-click": "pkill -USR1 -f \"openusage waybar\"",
-    "on-click-right": "if command -v xdg-terminal-exec >/dev/null 2>&1; then exec xdg-terminal-exec openusage accounts; elif command -v kitty >/dev/null 2>&1; then exec kitty --title openusage openusage accounts; elif [ -n \"${TERMINAL:-}\" ]; then exec \"$TERMINAL\" -T openusage -e openusage accounts; else exec x-terminal-emulator -T openusage -e openusage accounts; fi"
+    "on-click": "openusage waybar --refresh",
+    "on-click-right": "xdg-terminal-exec --title=openusage sh -c 'openusage accounts; printf \"\\nPress Enter to close.\"; read -r _'"
   }
 }

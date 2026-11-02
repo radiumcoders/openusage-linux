@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Glibc)
+import Glibc
+#endif
 
 public enum OpenUsageLinuxCommand {
     @MainActor
@@ -23,6 +26,12 @@ public enum OpenUsageLinuxCommand {
                 return await refresh()
             case .waybar(let once, let icon):
                 return await WaybarDaemon.run(once: once, icon: icon)
+            case .waybarRefresh:
+                guard WaybarDaemon.signalRunning(SIGUSR1) else {
+                    LinuxText.error("The Waybar module is not running.")
+                    return 1
+                }
+                return 0
             case .alerts(let change):
                 return alerts(change)
             }
@@ -174,6 +183,7 @@ public enum OpenUsageLinuxCommand {
                openusage rename <account-id> <name>
                openusage refresh
                openusage waybar [--once] [--icon <text>]
+               openusage waybar --refresh
                openusage alerts [on|off [under-10|under-30|running-out ...]]
 
         With no command, print the usage last fetched as openusage.limits.v2 JSON.
@@ -192,7 +202,8 @@ public enum OpenUsageLinuxCommand {
           waybar       Print Waybar JSON lines. Refreshes on start and every 5 minutes.
                        --once prints the cache and exits. --icon is the text used when
                        nothing is running out (default: a gauge glyph). A click on the
-                       module (SIGUSR1) refreshes every account now.
+                       module runs --refresh, which asks the running module to refresh every
+                       account now (SIGUSR1).
           alerts       List the desktop notification switches, or turn them on or off
                        (all of them when none is named). All start off.
 
@@ -224,6 +235,7 @@ enum LinuxCommandLine {
         var once = false
         var organization: String?
         var icon: String?
+        var waybarRefresh = false
         var positionals: [String] = []
         while index < arguments.count {
             let argument = arguments[index]
@@ -232,6 +244,8 @@ enum LinuxCommandLine {
                 force = true
             case "--once":
                 once = true
+            case "--refresh":
+                waybarRefresh = true
             case "--org":
                 index += 1
                 guard index < arguments.count, !arguments[index].hasPrefix("-") else {
@@ -252,6 +266,9 @@ enum LinuxCommandLine {
             index += 1
         }
 
+        if waybarRefresh, positionals.first != "waybar" {
+            throw LinuxUsageError(message: "--refresh only applies to waybar.")
+        }
         guard let command = positionals.first else {
             try unexpected(force: force, once: once, organization: organization, icon: icon, allowForce: true)
             return .read(providerID: nil, force: force)
@@ -289,6 +306,11 @@ enum LinuxCommandLine {
             return .alerts((on: positionals[1] == "on", milestones: milestones))
         case "waybar":
             guard positionals.count == 1 else { throw LinuxUsageError(message: "waybar takes no arguments.") }
+            if waybarRefresh {
+                guard !once, icon == nil else { throw LinuxUsageError(message: "--refresh takes no other options.") }
+                try unexpected(force: force, once: false, organization: organization, icon: nil)
+                return .waybarRefresh
+            }
             try unexpected(force: force, once: once, organization: organization, icon: icon, allowOnce: true, allowIcon: true)
             return .waybar(once: once, icon: icon ?? WaybarOutput.defaultIcon)
         default:
@@ -318,5 +340,6 @@ enum LinuxCommand {
     case rename(accountID: String, name: String)
     case refresh
     case waybar(once: Bool, icon: String)
+    case waybarRefresh
     case alerts((on: Bool, milestones: [PaceMilestone])?)
 }

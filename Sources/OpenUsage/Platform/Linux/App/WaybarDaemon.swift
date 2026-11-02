@@ -53,19 +53,25 @@ final class WaybarPIDLock: @unchecked Sendable {
 }
 
 enum WaybarDaemon {
-    /// Tells a running daemon to reload its accounts (SIGUSR2). A pid file with nobody holding its lock is stale.
+    /// Tells a running daemon to reload its accounts (SIGUSR2).
     static func notifyRunning() {
+        _ = signalRunning(SIGUSR2)
+    }
+
+    /// Sends `signal` to the daemon named in the pid file, if it is running. A pid file with nobody
+    /// holding its lock is stale.
+    static func signalRunning(_ signal: Int32) -> Bool {
         let url = OpenUsagePaths.waybarPID
         let fd = open(url.path, O_RDWR)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else { return false }
         defer { close(fd) }
         if flock(fd, LOCK_EX | LOCK_NB) == 0 {
             flock(fd, LOCK_UN)
-            return
+            return false
         }
         guard let text = try? String(contentsOf: url, encoding: .utf8),
-              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return }
-        _ = kill(pid, SIGUSR2)
+              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return false }
+        return kill(pid, signal) == 0
     }
 
     @MainActor
