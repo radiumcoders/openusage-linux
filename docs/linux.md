@@ -68,6 +68,14 @@ that icon (a Nerd Font gauge by default).
 | `percentage` | The module percentage Waybar reads for `{percentage}`. |
 | `alt` | Alternate text for `{alt}`. |
 
+## Omarchy bar
+
+Omarchy's own bar (the Omarchy shell) has no Waybar, but it loads custom QML modules.
+[contrib/omarchy/openusage.qml](../contrib/omarchy/openusage.qml) runs `openusage waybar` and shows the same
+text, colors, and tooltip, with the same clicks. Copy it to `~/.config/omarchy/bar/modules/openusage.qml`,
+then add `{ "id": "openusage", "type": "qml" }` to a section of `bar.layout` in
+`~/.config/omarchy/shell.json`. The bar reloads on save.
+
 ## Hyprland
 
 [contrib/hyprland/openusage.lua](../contrib/hyprland/openusage.lua) (Hyprland 0.55 and later, Lua config)
