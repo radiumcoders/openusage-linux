@@ -1,5 +1,8 @@
+#if canImport(AppKit)
 import AppKit
 import SwiftUI
+#endif
+import Foundation
 import XCTest
 import os
 @testable import OpenUsage
@@ -117,6 +120,7 @@ final class HangingProviderRuntime: ProviderRuntime {
     }
 }
 
+#if canImport(AppKit)
 @MainActor
 final class RecordingTelemetrySink: TelemetrySink {
     var events: [(name: String, properties: [String: Any])] = []
@@ -143,6 +147,8 @@ extension AppContainer {
         )
     }
 }
+
+#endif
 
 extension WidgetDataStore {
     static func forTesting(
@@ -207,6 +213,7 @@ enum StoredAccountList {
     static let data = Data((#"[{"id":"8AD3B217-0000-4000-8000-000000000000","kind":"claude","label":"Work","addedAt":0},"# + futureEntry + "]").utf8)
 }
 
+#if canImport(AppKit)
 @MainActor
 func scrollViews(in view: NSView) -> [NSScrollView] {
     [view as? NSScrollView].compactMap { $0 } + view.subviews.flatMap(scrollViews)
@@ -269,6 +276,8 @@ extension QuietWindowTestCase {
         return HostedPopover(panel: panel, host: hosting, popover: container.popover, defaults: defaults)
     }
 }
+
+#endif
 
 extension XCTestCase {
     func isolatedDefaults() -> UserDefaults {

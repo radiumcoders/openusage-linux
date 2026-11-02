@@ -1,4 +1,7 @@
+#if canImport(SwiftUI)
 import SwiftUI
+#endif
+import Foundation
 @testable import OpenUsage
 
 enum MockData {
