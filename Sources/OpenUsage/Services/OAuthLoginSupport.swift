@@ -153,8 +153,11 @@ func waitForAuthorizationInput(
             tasks.addTask { .callback(try await server.waitForCode()) }
             tasks.addTask {
                 var iterator = pastedCode.makeAsyncIterator()
-                guard let value = await iterator.next() else { throw LoginError.cancelled }
-                return .pasted(value)
+                if let value = await iterator.next() { return .pasted(value) }
+                // An input that ends without a code means none is coming, not a cancelled sign-in (a
+                // cancel cancels this task), so the browser's callback still decides, even one that has
+                // already arrived.
+                while true { try await Task.sleep(for: .seconds(3600)) }
             }
             guard let result = try await tasks.next() else { throw LoginError.cancelled }
             server.cancel()
