@@ -1,6 +1,7 @@
 //! OpenUsage for Linux: the accounts, sign-ins, providers, and refresh logic of the Mac app, in Rust.
 
 pub mod account;
+pub mod accounts;
 pub mod claims;
 pub mod daemon;
 pub mod dashboard;

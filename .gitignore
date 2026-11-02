@@ -30,3 +30,4 @@ node_modules/
 feed/
 appcast.xml
 linux/target/
+linux/target-verify/

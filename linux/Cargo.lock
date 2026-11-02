@@ -1036,7 +1036,7 @@ dependencies = [
  "libc",
  "openusage-core",
  "serde_json",
- "sha2",
+ "uuid",
 ]
 
 [[package]]
@@ -1069,6 +1069,7 @@ dependencies = [
  "pango",
  "resvg",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

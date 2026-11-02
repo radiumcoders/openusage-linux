@@ -7,7 +7,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use openusage_core::account::{Account, Credential, OAuthTokens};
+use openusage_core::accounts;
 use openusage_core::daemon;
 use openusage_core::error::LoginError;
 use openusage_core::http::UreqClient;
@@ -16,9 +16,7 @@ use openusage_core::log;
 use openusage_core::login::{LoginPrompt, LoginPrompter};
 use openusage_core::provider::LoginMethod;
 use openusage_core::providers;
-use openusage_core::store::Settings;
-use openusage_core::vault::{SecretToolVault, Vault};
-use sha2::{Digest, Sha256};
+use openusage_core::vault::SecretToolVault;
 
 use crate::text;
 
@@ -58,7 +56,13 @@ fn restore_echo() {
 extern "C" fn on_sigint(_: i32) {
     restore_echo();
     let message = b"openusage: Sign-in cancelled.\n";
-    unsafe { libc::write(libc::STDERR_FILENO, message.as_ptr() as *const libc::c_void, message.len()) };
+    unsafe {
+        libc::write(
+            libc::STDERR_FILENO,
+            message.as_ptr() as *const libc::c_void,
+            message.len(),
+        )
+    };
     unsafe { libc::_exit(130) };
 }
 
@@ -85,7 +89,10 @@ struct TerminalPrompter {
 
 impl TerminalPrompter {
     fn new() -> Self {
-        Self { stop: Arc::new(AtomicBool::new(false)), paste: Mutex::new(None) }
+        Self {
+            stop: Arc::new(AtomicBool::new(false)),
+            paste: Mutex::new(None),
+        }
     }
 }
 
@@ -101,11 +108,16 @@ impl Drop for TerminalPrompter {
 impl LoginPrompter for TerminalPrompter {
     fn show(&self, prompt: &LoginPrompt) {
         match prompt {
-            LoginPrompt::Browser { url, accepts_pasted_code } => {
+            LoginPrompt::Browser {
+                url,
+                accepts_pasted_code,
+            } => {
                 text::line(url);
                 open_browser(url);
                 if *accepts_pasted_code {
-                    text::note("Paste the authorization code and press Enter, or finish in the browser.");
+                    text::note(
+                        "Paste the authorization code and press Enter, or finish in the browser.",
+                    );
                 } else {
                     text::note("Finish sign-in in the browser.");
                 }
@@ -117,7 +129,10 @@ impl LoginPrompter for TerminalPrompter {
                     text::prompt("Token: ");
                 }
             }
-            LoginPrompt::DeviceCode { user_code, verification_url } => {
+            LoginPrompt::DeviceCode {
+                user_code,
+                verification_url,
+            } => {
                 text::line(&format!("Code: {user_code}"));
                 text::line(verification_url);
                 open_browser(verification_url);
@@ -169,6 +184,15 @@ impl LoginPrompter for TerminalPrompter {
     }
 }
 
+/// Reads one secret line with echo off in a terminal. `None` is end of input.
+pub(crate) fn prompt_secret_line(prompt: &str) -> Option<String> {
+    let _interrupt = InterruptGuard::install();
+    if is_tty() {
+        text::prompt(prompt);
+    }
+    TerminalPrompter::new().read_line(true)
+}
+
 fn secret_prompt(label: &str) -> String {
     let lower = label.to_ascii_lowercase();
     if lower.contains("api key") {
@@ -190,7 +214,11 @@ fn read_one_line(stop: &AtomicBool) -> Option<String> {
     let mut buffer = Vec::new();
     let mut byte = [0u8; 1];
     while !stop.load(Ordering::SeqCst) {
-        let mut poll = libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 };
+        let mut poll = libc::pollfd {
+            fd: libc::STDIN_FILENO,
+            events: libc::POLLIN,
+            revents: 0,
+        };
         let ready = unsafe { libc::poll(&mut poll, 1, 200) };
         if ready == 0 {
             continue;
@@ -201,9 +229,19 @@ fn read_one_line(stop: &AtomicBool) -> Option<String> {
             }
             return None;
         }
-        let count = unsafe { libc::read(libc::STDIN_FILENO, byte.as_mut_ptr() as *mut libc::c_void, 1) };
+        let count = unsafe {
+            libc::read(
+                libc::STDIN_FILENO,
+                byte.as_mut_ptr() as *mut libc::c_void,
+                1,
+            )
+        };
         if count == 0 {
-            return if buffer.is_empty() { None } else { Some(String::from_utf8_lossy(&buffer).into_owned()) };
+            return if buffer.is_empty() {
+                None
+            } else {
+                Some(String::from_utf8_lossy(&buffer).into_owned())
+            };
         }
         if count < 0 {
             if io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
@@ -222,7 +260,13 @@ fn read_one_line(stop: &AtomicBool) -> Option<String> {
 }
 
 fn open_browser(url: &str) {
-    match Command::new("xdg-open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+    match Command::new("xdg-open")
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
         Ok(mut child) => {
             thread::spawn(move || {
                 let _ = child.wait();
@@ -237,7 +281,11 @@ fn open_browser(url: &str) {
 
 pub fn add(provider: &str, organization: Option<String>) -> i32 {
     let Some(kind) = ProviderKind::from_raw(provider) else {
-        let names = ProviderKind::ALL.iter().map(|kind| kind.raw()).collect::<Vec<_>>().join(", ");
+        let names = ProviderKind::ALL
+            .iter()
+            .map(|kind| kind.raw())
+            .collect::<Vec<_>>()
+            .join(", ");
         text::error(&format!("Unknown provider: {provider}. Expected {names}."));
         return 2;
     };
@@ -286,105 +334,35 @@ fn cancelled(kind: ProviderKind, organization: bool) -> i32 {
     130
 }
 
-fn save(kind: ProviderKind, organization: Option<String>, label: String, credential: Credential) -> i32 {
-    let settings = Settings::open();
-    let vault = SecretToolVault::default();
-    if let Err(message) = check_duplicate(&vault, &settings.accounts(), &credential, kind, organization.as_deref()) {
-        text::error(&message);
-        return 1;
-    }
-    let account = Account::new(kind, label, organization);
-    if let Err(error) = vault.save(account.id, &credential) {
-        text::error(&error.to_string());
-        return 1;
-    }
-    let saved = account.clone();
-    if let Err(error) = settings.update_accounts(|accounts| accounts.push(saved)) {
-        let _ = vault.delete(account.id);
-        text::error(&error.to_string());
-        return 1;
-    }
-    text::line(&format!("Added {} ({}, {}).", account.card_id(), account.kind.display_name(), account.label));
-    daemon::notify_accounts_changed();
-    0
-}
-
-fn identity(credential: &Credential) -> Option<String> {
-    match credential {
-        Credential::OAuth(tokens) => tokens.extras.get(OAuthTokens::IDENTITY_KEY).cloned(),
-        Credential::ApiKey(key) => {
-            let digest = Sha256::digest(key.as_bytes());
-            let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-            Some(format!("key:{hex}"))
-        }
-    }
-}
-
-fn check_duplicate(
-    vault: &dyn Vault,
-    accounts: &[Account],
-    credential: &Credential,
+fn save(
     kind: ProviderKind,
-    organization: Option<&str>,
-) -> Result<(), String> {
-    let identity = identity(credential);
-    for account in accounts {
-        if account.kind != kind || account.hub.is_some() {
-            continue;
+    organization: Option<String>,
+    label: String,
+    credential: openusage_core::account::Credential,
+) -> i32 {
+    let settings = openusage_core::store::Settings::open();
+    let vault = SecretToolVault::default();
+    match accounts::save_new(&settings, &vault, kind, label, organization, &credential) {
+        Ok(account) => {
+            text::line(&format!(
+                "Added {} ({}, {}).",
+                account.card_id(),
+                account.kind.display_name(),
+                account.label
+            ));
+            daemon::notify_accounts_changed();
+            0
         }
-        if let Some(organization) = organization {
-            if account.organization.as_deref().is_none_or(|name| !name.eq_ignore_ascii_case(organization)) {
-                continue;
-            }
-        } else {
-            if account.organization.is_some() {
-                continue;
-            }
-            let Some(identity) = identity.as_deref() else { return Ok(()) };
-            match vault.load(account.id) {
-                Ok(Some(existing)) if self::identity(&existing).as_deref() == Some(identity) => {}
-                Ok(_) => continue,
-                Err(error) => {
-                    log::error(
-                        "auth",
-                        &format!("{} could not check its keyring item for a duplicate sign-in: {error}", account.card_id()),
-                    );
-                    return Err(format!(
-                        "OpenUsage couldn't check the saved sign-in for {}. Check Keychain access and try again.",
-                        account.label
-                    ));
-                }
-            }
+        Err(message) => {
+            text::error(&message);
+            1
         }
-        return Err(format!("This account is already added as {}.", account.label));
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openusage_core::vault::MemoryVault;
-
-    #[test]
-    fn a_second_copy_of_an_api_key_is_the_same_account() {
-        let existing = Account::new(ProviderKind::OpenRouter, "Personal", None);
-        let key = "secret-key";
-        let vault = MemoryVault::with(existing.id, Credential::ApiKey(key.into()));
-        let again = Credential::ApiKey(key.into());
-        let error = check_duplicate(&vault, &[existing.clone()], &again, ProviderKind::OpenRouter, None).unwrap_err();
-        assert_eq!(error, "This account is already added as Personal.");
-        let other = Credential::ApiKey("different".into());
-        assert!(check_duplicate(&vault, &[existing], &other, ProviderKind::OpenRouter, None).is_ok());
-    }
-
-    #[test]
-    fn an_oauth_sign_in_without_an_identity_is_not_checked() {
-        let existing = Account::new(ProviderKind::Claude, "Work", None);
-        let vault = MemoryVault::default();
-        let fresh = Credential::OAuth(OAuthTokens::new("token"));
-        assert!(check_duplicate(&vault, &[existing], &fresh, ProviderKind::Claude, None).is_ok());
-    }
 
     #[test]
     fn prompt_words_follow_the_secret_label() {
