@@ -1,0 +1,218 @@
+import Foundation
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
+
+struct WaybarLockError: LocalizedError {
+    var message: String
+    var errorDescription: String? { message }
+}
+
+final class WaybarPIDLock: @unchecked Sendable {
+    private let fd: Int32
+    private let url: URL
+
+    static func acquire() throws -> WaybarPIDLock {
+        let url = OpenUsagePaths.waybarPID
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = open(url.path, O_RDWR | O_CREAT, mode_t(0o644))
+        guard fd >= 0 else {
+            throw WaybarLockError(message: "Could not create the Waybar pid file: \(String(cString: strerror(errno)))")
+        }
+        if flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            let blocked = errno == EWOULDBLOCK || errno == EAGAIN
+            let existing = try? String(contentsOf: url, encoding: .utf8)
+            let pid = existing.flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+            close(fd)
+            if blocked {
+                throw WaybarLockError(
+                    message: pid.map { "Waybar module is already running (pid \($0))." } ?? "Waybar module is already running."
+                )
+            }
+            throw WaybarLockError(message: "Could not lock the Waybar pid file: \(String(cString: strerror(errno)))")
+        }
+        let text = "\(getpid())\n"
+        _ = ftruncate(fd, 0)
+        _ = lseek(fd, 0, SEEK_SET)
+        _ = text.withCString { write(fd, $0, strlen($0)) }
+        return WaybarPIDLock(fd: fd, url: url)
+    }
+
+    func release() {
+        unlink(url.path)
+        flock(fd, LOCK_UN)
+        close(fd)
+    }
+
+    private init(fd: Int32, url: URL) {
+        self.fd = fd
+        self.url = url
+    }
+}
+
+enum WaybarDaemon {
+    /// Tells a running daemon to reload. A pid file with nobody holding its lock is stale.
+    static func notifyRunning() {
+        let url = OpenUsagePaths.waybarPID
+        let fd = open(url.path, O_RDWR)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        if flock(fd, LOCK_EX | LOCK_NB) == 0 {
+            flock(fd, LOCK_UN)
+            return
+        }
+        guard let text = try? String(contentsOf: url, encoding: .utf8),
+              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return }
+        _ = kill(pid, SIGUSR1)
+    }
+
+    @MainActor
+    static func run(once: Bool, icon: String) async -> Int32 {
+        let session = LinuxSession()
+        if once {
+            emit(session.waybarLine(icon: icon))
+            return 0
+        }
+        let lock: WaybarPIDLock
+        do { lock = try WaybarPIDLock.acquire() } catch {
+            LinuxText.error(error.localizedDescription)
+            return 1
+        }
+        defer { lock.release() }
+
+        let control = DaemonControl()
+        let reloadSource = LinuxSignals.install(SIGUSR1) { @Sendable in control.requestReload() }
+        let interrupt = LinuxSignals.install(SIGINT) { @Sendable in control.requestStop() }
+        let terminate = LinuxSignals.install(SIGTERM) { @Sendable in control.requestStop() }
+        defer {
+            reloadSource.cancel()
+            interrupt.cancel()
+            terminate.cancel()
+        }
+
+        let quotas = QuotaNotificationEvaluator()
+        await session.refresh(force: true)
+        await session.evaluateQuotas(quotas)
+        emit(session.waybarLine(icon: icon))
+
+        let interval = RefreshSetting.interval
+        var nextRefresh = ContinuousClock.now.advanced(by: .seconds(interval))
+        var hourlyAt = ContinuousClock.now.advanced(by: .seconds(interval / 2))
+        var hourlyDone = false
+
+        while !control.isStopped {
+            if control.takeReload() || session.accountsChangedOnDisk() {
+                session.reloadFromDisk()
+                await session.refresh(force: true)
+                await session.evaluateQuotas(quotas)
+                emit(session.waybarLine(icon: icon))
+                let started = ContinuousClock.now
+                nextRefresh = started.advanced(by: .seconds(interval))
+                hourlyAt = started.advanced(by: .seconds(interval / 2))
+                hourlyDone = false
+                continue
+            }
+            let now = ContinuousClock.now
+            if now >= nextRefresh {
+                await session.hubs.syncDue()
+                if session.accountsChangedOnDisk() { continue }
+                await session.refresh(force: false)
+                await session.evaluateQuotas(quotas)
+                emit(session.waybarLine(icon: icon))
+                let started = ContinuousClock.now
+                nextRefresh = started.advanced(by: .seconds(interval))
+                hourlyAt = started.advanced(by: .seconds(interval / 2))
+                hourlyDone = false
+                continue
+            }
+            if !hourlyDone, now >= hourlyAt {
+                await session.data.refreshHourlyReads()
+                emit(session.waybarLine(icon: icon))
+                hourlyDone = true
+                continue
+            }
+            let tick = now.advanced(by: .seconds(30))
+            let wake = [tick, nextRefresh, hourlyDone ? nextRefresh : hourlyAt].min() ?? tick
+            await control.sleep(until: wake)
+            if control.isStopped { break }
+            let woke = ContinuousClock.now
+            if !control.reloadPending, !session.accountsChangedOnDisk(), woke < nextRefresh, hourlyDone || woke < hourlyAt {
+                emit(session.waybarLine(icon: icon))
+            }
+        }
+        return 0
+    }
+
+    private static func emit(_ json: String) {
+        FileHandle.standardOutput.write(Data(json.utf8))
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+}
+
+private final class DaemonControl: @unchecked Sendable {
+    private let mutex = NSLock()
+    private var reload = false
+    private var stop = false
+    private var sleeper: Task<Void, Never>?
+
+    var isStopped: Bool {
+        mutex.lock()
+        defer { mutex.unlock() }
+        return stop
+    }
+
+    var reloadPending: Bool {
+        mutex.lock()
+        defer { mutex.unlock() }
+        return reload
+    }
+
+    func requestReload() {
+        mutex.lock()
+        reload = true
+        let pending = sleeper
+        mutex.unlock()
+        pending?.cancel()
+    }
+
+    func requestStop() {
+        mutex.lock()
+        stop = true
+        let pending = sleeper
+        mutex.unlock()
+        pending?.cancel()
+    }
+
+    func takeReload() -> Bool {
+        mutex.lock()
+        defer { mutex.unlock() }
+        let value = reload
+        reload = false
+        return value
+    }
+
+    func sleep(until deadline: ContinuousClock.Instant) async {
+        let task = Task<Void, Never> {
+            do { try await Task.sleep(until: deadline, clock: .continuous) } catch {}
+        }
+        if beginSleep(task) { task.cancel() }
+        await task.value
+        endSleep(task)
+    }
+
+    private func beginSleep(_ task: Task<Void, Never>) -> Bool {
+        mutex.lock()
+        sleeper = task
+        let already = reload || stop
+        mutex.unlock()
+        return already
+    }
+
+    private func endSleep(_ task: Task<Void, Never>) {
+        mutex.lock()
+        if sleeper == task { sleeper = nil }
+        mutex.unlock()
+    }
+}
