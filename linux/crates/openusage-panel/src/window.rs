@@ -64,6 +64,9 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
             }
             return;
         }
+        if let Some(ctx) = ctx_from(app) {
+            retarget(&ctx);
+        }
         window.set_visible(true);
         window.present();
         if let Some(ctx) = ctx_from(app) {
@@ -383,6 +386,18 @@ fn fit(ctx: &Ctx, root: &impl gtk4::prelude::IsA<gtk4::Widget>) {
     ctx.window.set_default_size(340, height);
     ctx.window.set_width_request(340);
     ctx.window.set_height_request(height);
+}
+
+/// Moves the panel and its backdrop to the monitor under the pointer before they show again.
+fn retarget(ctx: &Rc<Ctx>) {
+    if !gtk4_layer_shell::is_supported() {
+        return;
+    }
+    let Some(monitor) = position::pointer_output().as_deref().and_then(monitor_named) else { return };
+    ctx.window.set_monitor(Some(&monitor));
+    if let Some(backdrop) = &ctx.backdrop {
+        backdrop.set_monitor(Some(&monitor));
+    }
 }
 
 fn monitor_named(name: &str) -> Option<gdk::Monitor> {

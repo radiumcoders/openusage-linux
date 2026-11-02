@@ -152,12 +152,53 @@ pub fn placement() -> Placement {
     let (thickness, output) = detect_bar(position);
     Placement {
         corner: corner_for(position, thickness),
-        output,
+        // The bar the user clicked is on the monitor under the pointer; with several monitors each has
+        // its own bar, so open there rather than on whichever bar sits lowest.
+        output: pointer_output().or(output),
     }
+}
+
+fn hyprctl_json(args: &[&str]) -> Option<Value> {
+    let output = std::process::Command::new("hyprctl").args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    serde_json::from_slice(&output.stdout).ok()
+}
+
+/// The monitor under the pointer, from Hyprland, or `None` elsewhere.
+pub fn pointer_output() -> Option<String> {
+    let cursor = hyprctl_json(&["cursorpos", "-j"])?;
+    let monitors = hyprctl_json(&["monitors", "-j"])?;
+    monitor_at(&monitors, cursor.get("x")?.as_f64()?, cursor.get("y")?.as_f64()?)
+}
+
+/// The monitor containing layout point (x, y). Sizes are physical pixels, so divide by the scale.
+fn monitor_at(monitors: &Value, x: f64, y: f64) -> Option<String> {
+    monitors.as_array()?.iter().find_map(|monitor| {
+        let field = |key: &str| monitor.get(key).and_then(Value::as_f64);
+        let scale = field("scale").filter(|scale| *scale > 0.0).unwrap_or(1.0);
+        let (left, top) = (field("x")?, field("y")?);
+        let (width, height) = (field("width")? / scale, field("height")? / scale);
+        (x >= left && x < left + width && y >= top && y < top + height)
+            .then(|| monitor.get("name")?.as_str().map(str::to_string))
+            .flatten()
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_monitor_under_the_pointer_is_found_across_two_screens() {
+        let monitors = serde_json::json!([
+            {"name": "DP-2", "x": 0, "y": 1080, "width": 1920, "height": 1080, "scale": 1.0},
+            {"name": "DP-1", "x": 1920, "y": 0, "width": 3840, "height": 2160, "scale": 2.0}
+        ]);
+        assert_eq!(super::monitor_at(&monitors, 1720.0, 2147.0).as_deref(), Some("DP-2"));
+        assert_eq!(super::monitor_at(&monitors, 3500.0, 1070.0).as_deref(), Some("DP-1"));
+        assert_eq!(super::monitor_at(&monitors, 100.0, 100.0), None);
+    }
+
     use super::*;
 
     #[test]

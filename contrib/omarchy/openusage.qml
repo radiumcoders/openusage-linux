@@ -56,12 +56,12 @@ Item {
     id: mouse
     anchors.fill: parent
     acceptedButtons: Qt.LeftButton | Qt.RightButton
+    // Launched directly, without a shell: third-party modules get a bar API without `shellQuote`.
     onClicked: function(event) {
-      if (!root.bar) return
       if (event.button === Qt.RightButton)
-        root.bar.run(root.bar.shellQuote(root.openusage) + " waybar --refresh")
+        Quickshell.execDetached([root.openusage, "waybar", "--refresh"])
       else
-        root.bar.run(root.bar.shellQuote(root.panel) + " --toggle")
+        Quickshell.execDetached([root.panel, "--toggle"])
     }
   }
 
