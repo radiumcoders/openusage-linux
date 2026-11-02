@@ -32,10 +32,14 @@ Either way, the app updates itself in place through signed, notarized
 
 ## Linux
 
-On Linux, OpenUsage has no window. It is a Waybar module and the `openusage` command, with the same
-providers and sign-ins. `script/install_linux.sh` builds it and installs `~/.local/bin/openusage`.
-See [Linux](docs/linux.md). When building or testing by hand, pass `--disable-automatic-resolution`
-so SwiftPM does not delete `Package.resolved`.
+On Linux, OpenUsage is a Waybar module, a GTK panel, and the `openusage` command, with the same
+providers and sign-ins as the Mac app. Build it with Cargo; a Swift toolchain is not required.
+
+```sh
+script/install_linux.sh
+```
+
+The script installs `openusage` and `openusage-panel` to `~/.local/bin`. See [Linux](docs/linux.md).
 
 ## Accounts
 

@@ -1,17 +1,16 @@
 # Linux
 
-OpenUsage on Linux is the same providers and sign-ins as the Mac app, with no window. A long-running
-`openusage waybar` process feeds a Waybar module, and the `openusage` command lists accounts, signs
-in, refreshes, and prints limits.
+OpenUsage on Linux is the Rust edition of the Mac app: the same providers and sign-ins, a Waybar
+module, a GTK panel, and the `openusage` command. A Swift toolchain is not needed to build or run it.
 
 ## Requirements
 
-- Swift 6.2, to build. The install script links the Swift standard library into the binary, so a
-  Swift runtime is not needed afterwards.
+- Rust and Cargo, to build.
 - `secret-tool` (libsecret), and a Secret Service keyring such as GNOME Keyring, or KWallet with
   Secret Service turned on.
 - `notify-send` (libnotify), for quota alerts.
 - `xdg-open`, so a browser sign-in can open its link.
+- GTK 4 and `gtk4-layer-shell`, for the panel.
 - A Nerd Font, for the default Waybar icon. Pass `--icon` to use other text.
 
 ## Install
@@ -20,15 +19,20 @@ in, refreshes, and prints limits.
 script/install_linux.sh
 ```
 
-The script builds with `swift build -c release --static-swift-stdlib --disable-automatic-resolution`,
-using `swift` on `PATH` when it is Swift 6.2, otherwise `mise exec swift@6.2 --`. It installs the
-binary to `~/.local/bin/openusage` and warns if `secret-tool`, `notify-send`, or `xdg-open` is missing.
+The script runs `cargo build --release --manifest-path linux/Cargo.toml` and installs `openusage` and
+`openusage-panel` to `~/.local/bin`. It warns if `secret-tool`, `notify-send`, `xdg-open`, or
+`gtk4-layer-shell` is missing. `~/.local/bin` has to be on `PATH`.
 
-`~/.local/bin` has to be on `PATH`.
+To build without installing:
 
-A plain `swift build` or `swift test` on Linux deletes `Package.resolved`. The Linux manifest has no
-package dependencies, so SwiftPM drops the Mac app's pins. Pass `--disable-automatic-resolution` on
-every Linux `swift build` and `swift test`. Never commit a deleted `Package.resolved`.
+```sh
+cargo build --release --manifest-path linux/Cargo.toml
+```
+
+## Panel
+
+`openusage panel`, or `openusage-panel --toggle`, opens and closes the usage panel. Waybar's left
+click runs that. The panel reads the same accounts, snapshots, and refresh status as the bar.
 
 ## Add an account
 
@@ -37,13 +41,14 @@ openusage add claude
 openusage add copilot --org my-org
 ```
 
-Sign-in runs in the terminal. A browser sign-in opens the link with `xdg-open`. A device-code sign-in
-prints the code to enter. An API-key sign-in reads the key from stdin. The provider ids match the Mac
-app: `claude`, `codex`, `cursor`, `antigravity`, `copilot`, `devin`, `grok`, `ollama`, `opencode`,
-`openrouter`, `zai`. What each sign-in grants is in [Providers](providers.md).
+Sign-in runs in the terminal. A browser sign-in prints the link and opens it with `xdg-open`. A
+device-code sign-in prints the code to enter. An API-key sign-in reads the key from stdin with echo
+off in a terminal. The provider ids match the Mac app: `claude`, `codex`, `cursor`, `antigravity`,
+`copilot`, `devin`, `grok`, `ollama`, `opencode`, `openrouter`, `zai`. What each sign-in grants is in
+[Providers](providers.md).
 
-`--org <name>` adds a Copilot organization's billing as its own account, signed in with an organization
-token (`openusage add copilot --org <name>`).
+`--org <name>` adds a Copilot organization's billing as its own account, signed in with an
+organization token.
 
 ## Waybar
 
@@ -52,36 +57,35 @@ Merge [contrib/waybar/config.jsonc](../contrib/waybar/config.jsonc) into the Way
 [contrib/waybar/style.css](../contrib/waybar/style.css) into the Waybar stylesheet.
 
 `openusage waybar` stays running and prints one JSON object per line (`return-type: json`) on each
-update. It refreshes every 5 minutes. A left click runs `openusage waybar --refresh`, which asks the running module
-to refresh every account now (`SIGUSR1`). A right click lists the accounts in a terminal opened with
-`xdg-terminal-exec`.
+update. It refreshes every 5 minutes. A left click opens the panel. A right click runs
+`openusage waybar --refresh`, which asks the running module to refresh every account now (`SIGUSR1`).
 
-`--once` prints one line from the saved snapshots and exits, without refreshing. When no limit is running
-low, the module shows only an icon, as the Mac menu bar shows only the app icon; `--icon <text>` replaces
-that icon (a Nerd Font gauge by default).
+`--once` prints one line from the saved snapshots and exits, without refreshing. When no limit is
+running low, the module shows only an icon, as the Mac menu bar shows only the app icon;
+`--icon <text>` replaces that icon (a Nerd Font gauge by default).
 
 | Field | Meaning |
 | --- | --- |
 | `text` | The same strip as the Mac menu bar: the limits closest to running out, or the icon when none is. |
 | `tooltip` | Pango markup of every account. |
-| `class` | `normal`, `warning`, or `critical`, plus `error`, `empty`, or `stale` when that is the state. |
-| `percentage` | The module percentage Waybar reads for `{percentage}`. |
-| `alt` | Alternate text for `{alt}`. |
+| `class` | `normal`, `warning`, or `critical`, plus `error` or `stale` when that is the state. No accounts is `empty`. |
+| `percentage` | The fullest limit, as a percent used. |
+| `alt` | The class names, for `{alt}`. |
 
 ## Omarchy bar
 
-Omarchy's own bar (the Omarchy shell) has no Waybar, but it loads custom QML modules.
-[contrib/omarchy/openusage.qml](../contrib/omarchy/openusage.qml) runs `openusage waybar` and shows the same
-text, colors, and tooltip, with the same clicks. Copy it to `~/.config/omarchy/bar/modules/openusage.qml`,
-then add `{ "id": "openusage", "type": "qml" }` to a section of `bar.layout` in
-`~/.config/omarchy/shell.json`. The bar reloads on save.
+Omarchy's own bar has no Waybar, but it loads custom QML modules.
+[contrib/omarchy/openusage.qml](../contrib/omarchy/openusage.qml) runs `openusage waybar` and shows the
+same text, colors, and tooltip. Left click opens the panel; right click refreshes. Copy it to
+`~/.config/omarchy/bar/modules/openusage.qml`, then add `{ "id": "openusage", "type": "qml" }` to a
+section of `bar.layout` in `~/.config/omarchy/shell.json`. The bar reloads on save.
 
 ## Hyprland
 
 [contrib/hyprland/openusage.lua](../contrib/hyprland/openusage.lua) (Hyprland 0.55 and later, Lua config)
 or [openusage.conf](../contrib/hyprland/openusage.conf) (earlier versions) floats a terminal whose title
-is `openusage`, for `openusage add` and the Waybar right-click. Launch a sign-in with that title, for
-example `xdg-terminal-exec --title=openusage openusage add claude`.
+is `openusage`, for sign-in. Launch one with that title, for example
+`xdg-terminal-exec --title=openusage openusage add claude`.
 
 ## Commands
 
@@ -99,6 +103,7 @@ example `xdg-terminal-exec --title=openusage openusage add claude`.
 | `openusage waybar --refresh` | Ask the running module to refresh every account now. Exits 1 when it is not running. |
 | `openusage alerts` | List the quota alert switches. |
 | `openusage alerts on\|off [under-10\|under-30\|running-out …]` | Turn alerts on or off; all of them when none is named. |
+| `openusage panel` | Open or close the panel (`openusage-panel --toggle`). |
 
 `openusage` on its own reads the last saved snapshots. It does not refresh, the same as on the Mac.
 `--force` is accepted and does nothing, as on the Mac.
@@ -108,42 +113,58 @@ example `xdg-terminal-exec --title=openusage openusage add claude`.
 | Data | Path |
 | --- | --- |
 | Accounts and settings | `$XDG_CONFIG_HOME/openusage/settings.plist` (`~/.config/openusage/settings.plist` when unset) |
-| Snapshot cache | `$XDG_STATE_HOME/openusage/snapshots.plist` (`~/.local/state/openusage/snapshots.plist` when unset) |
+| Snapshot cache | `$XDG_STATE_HOME/openusage/snapshots.json` (`~/.local/state/openusage/snapshots.json` when unset) |
+| Refresh status | `$XDG_STATE_HOME/openusage/status.json` |
 | Sign-ins | The desktop keyring, through `secret-tool`. Service `com.robinebers.openusage.accounts`. |
-| Waybar pid | `$XDG_RUNTIME_DIR/openusage/waybar.pid` |
+| Daemon pid | `$XDG_RUNTIME_DIR/openusage/daemon.pid` |
+
+`settings.plist` and the keyring service are the same as the previous Linux build, so accounts carry
+over. Snapshots are `snapshots.json`. An older `snapshots.plist` is not read; run `openusage refresh`
+once to fill the new cache.
+
+`status.json` is one object per account id. A missing id has no backoff. A successful refresh removes
+the entry. `retryAt` is UTC with milliseconds.
+
+```json
+{
+  "claude@8ad3b217": {
+    "failures": 1,
+    "message": "Claude sign-in expired. Sign in again with `openusage add claude` to keep reading usage.",
+    "providerAsked": false,
+    "retryAt": "2026-07-13T01:45:00.000Z"
+  }
+}
+```
+
+`providerAsked` is true when the provider asked OpenUsage to wait. The panel and the bar use this file
+for the account's error line.
 
 OpenUsage does not read other tools' files, keyrings, or environment variables for credentials. You add
 each account yourself.
 
 ## Refresh and notifications
 
-`openusage waybar` refreshes every account every 5 minutes, the same interval as the Mac app. At launch
-(Waybar restarts it on every config reload) an account read within the last interval keeps its saved
-reading. `add`, `remove`, and `rename` tell the running module to reload its accounts, and it fetches
-only the account that is new. A left click (`openusage waybar --refresh`) or `openusage refresh` refreshes every account
-once, ahead of that interval. A failed
-fetch keeps the last good snapshot. `class` includes `stale` once a snapshot is older than two
-intervals (10 minutes): the same moment the Mac app shows a clock and the limits JSON sets
-`"stale": true`. See [Refreshing](refreshing.md).
+`openusage waybar` refreshes every account every 5 minutes, the same interval as the Mac app, and
+reprints its line every 30 seconds so reset countdowns move between fetches. At launch
+an account read within the last interval keeps its saved reading. `add`, `remove`, and `rename` tell
+the running module to reload its accounts (`SIGUSR2`), and it fetches only what is due. A right click
+or `openusage waybar --refresh` refreshes every account now. `openusage refresh` does the same fetch
+once and prints a line per account; it does not signal the module. A failed fetch keeps the last good
+snapshot and backs off, from 5 minutes up to an hour. A rate limit waits until the time the provider
+asked for, including when a refresh is forced. `class` includes `stale` once a snapshot is older than
+10 minutes. See [Refreshing](refreshing.md).
 
-Quota alerts go out with `notify-send` to the notification daemon (mako, dunst, swaync, or another).
-The three triggers match the Mac app: under 10% left (`under-10`), under 30% left (`under-30`), and a
-limit that may run out before it resets (`running-out`). All start off, as on the Mac; turn them on with
-`openusage alerts on`. Each alert is sent once per metric per reset window. See
-[Notifications](settings.md#notifications).
+Quota alerts go out with `notify-send`. The three triggers match the Mac app: under 10% left
+(`under-10`), under 30% left (`under-30`), and a limit that may run out before it resets
+(`running-out`). All start off. Each alert is sent once per metric per reset window, and only by the
+running Waybar module. See [Notifications](settings.md#notifications).
 
 ## Proxy
 
-Provider requests use `~/.openusage/config.json`, the same file as on the Mac. The format is in
-[Proxy](proxy.md).
-
-On Linux the proxy is applied inside this process for libcurl, which carries Foundation's HTTP:
-`all_proxy`, `ALL_PROXY`, `http_proxy`, `HTTP_PROXY`, `https_proxy`, and `HTTPS_PROXY`. A `socks5://`
-URL is sent as `socks5h://` so the proxy resolves host names. With no file, `"enabled": false`, or a
-file that does not parse, OpenUsage sets no proxy. A parse problem is logged on stderr without the
-user name or the password.
-
-The browser sign-in page follows the browser's own proxy. The sign-in callback stays on localhost.
+Provider requests use `~/.openusage/config.json`, the same file as on the Mac. `socks5://` and
+`http://` are applied by the HTTP client. `https://` proxies are not. Environment proxy variables are
+not read. A parse problem is logged without the user name or the password. The browser sign-in page
+follows the browser's own proxy. The format is in [Proxy](proxy.md).
 
 ## Troubleshooting
 
@@ -152,21 +173,21 @@ terminal prints them itself:
 
 ```sh
 journalctl --user -u waybar -f
-openusage waybar
+OPENUSAGE_VERBOSE=1 openusage waybar
 ```
 
-A line looks like `OpenUsage notice: [refresh] …`. Notices, warnings, and errors always print; set
-`OPENUSAGE_VERBOSE=1` to add info and debug lines, such as each HTTP request's endpoint and status.
-Credentials and response bodies are not logged.
+A line looks like `OpenUsage notice: [refresh] …`. Notices, warnings, and errors always print.
+`OPENUSAGE_VERBOSE=1` adds info and debug lines. Credentials and response bodies are not logged.
 
 A locked keyring makes `secret-tool` fail, and the account reports that OpenUsage could not use the
-keyring. Unlock it (log in, or unlock GNOME Keyring) and run `openusage refresh`. This reads one item
-back, without printing it into the command line:
+keyring. Unlock it and run `openusage refresh`. This reads one item back, without printing it into
+the command line:
 
 ```sh
 secret-tool lookup service com.robinebers.openusage.accounts account <account-uuid>
 ```
 
-If `secret-tool` is not installed, the error names libsecret and a Secret Service keyring. If
-`notify-send` is not installed, quota alerts are skipped and a warning is logged. If `xdg-open` is not
-installed, a browser sign-in cannot open its link.
+The account id in the keyring is the account UUID in uppercase. If `secret-tool` is not installed, the
+error names libsecret and a Secret Service keyring. If `notify-send` is not installed, quota alerts are
+skipped and a warning is logged. If `xdg-open` is not installed, a browser sign-in cannot open its
+link. If `gtk4-layer-shell` is not installed, the panel does not start.

@@ -1,11 +1,10 @@
 // Merge this key into the Waybar config, and add "custom/openusage" to a modules-* list.
-// Left click refreshes every account now. Right click lists the accounts in a floating terminal
-// (titled "openusage"; see contrib/hyprland) through xdg-terminal-exec.
+// Left click opens the panel. Right click refreshes every account now.
 {
   "custom/openusage": {
     "exec": "openusage waybar",
     "return-type": "json",
-    "on-click": "openusage waybar --refresh",
-    "on-click-right": "xdg-terminal-exec --title=openusage sh -c 'openusage accounts; printf \"\\nPress Enter to close.\"; read -r _'"
+    "on-click": "openusage-panel --toggle",
+    "on-click-right": "openusage waybar --refresh"
   }
 }

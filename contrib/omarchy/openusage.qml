@@ -1,6 +1,6 @@
 // OpenUsage in the Omarchy bar. Runs `openusage waybar`, which refreshes the accounts every 5 minutes
 // and prints one Waybar-style JSON line per update: text, tooltip (Pango), class, percentage.
-// Left click refreshes every account now; right click lists the accounts in a terminal.
+// Left click opens the panel. Right click refreshes every account now.
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -13,6 +13,7 @@ Item {
   property var settings
 
   readonly property string openusage: Quickshell.env("HOME") + "/.local/bin/openusage"
+  readonly property string panel: Quickshell.env("HOME") + "/.local/bin/openusage-panel"
 
   property string label: "\u{F04C5}"
   property string tooltip: "OpenUsage is starting…"
@@ -72,10 +73,9 @@ Item {
     onClicked: function(event) {
       if (!root.bar) return
       if (event.button === Qt.RightButton)
-        root.bar.run("xdg-terminal-exec --title=openusage sh -c " + root.bar.shellQuote(
-          root.openusage + " accounts; printf '\\nPress Enter to close.'; read -r _"))
-      else
         root.bar.run(root.bar.shellQuote(root.openusage) + " waybar --refresh")
+      else
+        root.bar.run(root.bar.shellQuote(root.panel) + " --toggle")
     }
   }
 

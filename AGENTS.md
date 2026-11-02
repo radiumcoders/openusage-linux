@@ -86,27 +86,17 @@ full rebuild and restart of the running app** to take effect. The development bu
 
 ## Linux edition
 
-The Linux build is a Waybar module and the `openusage` command. It uses the same providers, sign-ins,
-and refresh code as the Mac app. There is no AppKit or SwiftUI shell. See `docs/linux.md`.
-
-Linux-only code lives in `Sources/OpenUsage/Platform/Linux` and `Sources/LinuxShims`. Shared files stay
-shared: a Linux difference is a minimal `#if os(Linux)` guard, not a second copy of the file.
-
-On Linux, pass `--disable-automatic-resolution` to every `swift build` and `swift test`. The Linux
-manifest has no package dependencies, so a plain invocation deletes `Package.resolved` and drops the
-Mac app's pins. Never commit a deleted `Package.resolved`.
+The Linux edition is the Rust workspace in `linux/`: the `openusage` command, the Waybar producer, and
+the GTK panel. It uses the same providers, sign-ins, and account files as the Mac app. See `docs/linux.md`.
 
 ```sh
-swift build --disable-automatic-resolution
-swift test --disable-automatic-resolution
+cargo build --manifest-path linux/Cargo.toml
+cargo test --manifest-path linux/Cargo.toml
+script/install_linux.sh
 ```
 
-`swift test --disable-automatic-resolution` runs `OpenUsageTests` (the shared, platform-neutral suite)
-and `OpenUsageLinuxTests`. Mac-only tests stay out; the exclusions and the reasons are in `Package.swift`
-(Mac-only types, and Linux XCTest cannot discover synchronous tests in an `@MainActor` class).
-`script/test_quiet.sh` is macOS-only. Install a release binary with `script/install_linux.sh`.
-
-If `swift` is not on `PATH`, prefix the commands with `mise exec swift@6.2 --`.
+`swift build` on Linux still needs `--disable-automatic-resolution`, or SwiftPM deletes `Package.resolved`
+and drops the Mac app's pins. Never commit a deleted `Package.resolved`.
 
 ## Pull Requests
 
