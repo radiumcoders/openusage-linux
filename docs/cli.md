@@ -3,7 +3,9 @@
 OpenUsage ships a one-shot `openusage` command for scripts and agents. It prints the usage the app last
 fetched, as JSON, and exits. It never refreshes, signs in, or reads a credential: the app fetches on
 its own schedule (every 5 minutes while it runs, see [Refreshing](refreshing.md)) and saves each
-successful fetch, and the command reads that saved copy. Running it does not launch the app.
+successful fetch, and the command reads that saved copy. Running it does not launch the app. On
+Linux, `openusage` is the program you run: this command, plus account and Waybar commands. See
+[Linux](linux.md).
 
 ```sh
 openusage                  # every account

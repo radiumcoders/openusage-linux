@@ -1,0 +1,14 @@
+/* Classes on the custom/openusage module. Waybar sets these from the JSON `class` field. */
+
+#custom-openusage.warning {
+    color: #d4a017;
+}
+
+#custom-openusage.critical,
+#custom-openusage.error {
+    color: #e05a5a;
+}
+
+#custom-openusage.stale {
+    color: #8d8d8d;
+}

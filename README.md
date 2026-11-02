@@ -30,6 +30,13 @@ to your Applications folder.
 Either way, the app updates itself in place through signed, notarized
 [Sparkle](docs/updates.md) updates. Requires macOS 15 (Sequoia) or later.
 
+## Linux
+
+On Linux, OpenUsage has no window. It is a Waybar module and the `openusage` command, with the same
+providers and sign-ins. `script/install_linux.sh` builds it and installs `~/.local/bin/openusage`.
+See [Linux](docs/linux.md). When building or testing by hand, pass `--disable-automatic-resolution`
+so SwiftPM does not delete `Package.resolved`.
+
 ## Accounts
 
 Open **Accounts** from the panel's **⋯** menu (or press Return), click **Add New Account**, and click a

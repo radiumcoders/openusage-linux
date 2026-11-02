@@ -10,6 +10,7 @@ with the behaviour they describe. If the app and a page here disagree, that is a
 - [Menu bar](menu-bar.md): what the strip shows and how it picks limits
 - [Settings](settings.md): every option and what it changes, and what carries over from 0.7.x
 - [Command line](cli.md): the `openusage` command, its JSON output, and installing it
+- [Linux](linux.md): the Waybar module, the Linux commands, and where data is stored
 - [Refreshing](refreshing.md): when data updates and what happens when a fetch fails
 - [Providers](providers.md): how each provider signs in and what it shows
 - [Updates](updates.md): automatic updates, manual checks, and the beta channel
