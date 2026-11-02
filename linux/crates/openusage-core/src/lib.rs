@@ -12,6 +12,7 @@ pub mod http;
 pub mod hub;
 pub mod kind;
 pub mod layout;
+pub mod layout_v1;
 pub mod log;
 pub mod login;
 pub mod metric;

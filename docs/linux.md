@@ -48,7 +48,7 @@ field with a link to the key page. **Needs Attention** uses **Fix** to open the 
 On All Usage, drag a provider by its header, an account by its name, or a metric by its row; on
 Accounts, drag an account by its handle. An account's page lists its metrics with a switch to hide
 each one everywhere and a handle to reorder it. **Ctrl+Z** undoes the last reorder or hide. The order
-and hidden metrics are saved under the Mac key `openusage.layout.v2`. Settings stores the
+and hidden metrics are saved under the Mac key `openusage.layout.v2`. An account that is the only one of its provider starts from that provider's 0.7.x layout when one is saved (the read-only `openusage.layout.v1` keys), as on the Mac. Settings stores the
 Mac keys for quota alerts, how many limits the bar shows, used or left, and countdown or exact reset
 times. Clicking an amount or a reset on the dashboard flips the same two settings. A **Limit Resets** row has
 **Claim** when a reset can be used now (Claude and ChatGPT), and a history row shows its top models

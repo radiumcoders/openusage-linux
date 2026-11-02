@@ -93,10 +93,13 @@ pub fn save(settings: &Settings, state: &LayoutState) -> std::io::Result<()> {
 
 /// Loads the layout and, when an account has no saved place, writes that place. A new provider goes
 /// to the bottom and a new account goes to the bottom of its provider. Unchanged layouts are not
-/// rewritten. This is the read the dashboard, the bar, and `openusage accounts` use.
+/// rewritten. An account seen for the first time that is the only one of its provider takes that
+/// provider's 0.7.x layout (`layout_v1`). This is the read the dashboard, the bar, and `openusage
+/// accounts` use.
 pub fn load_for(settings: &Settings, accounts: &[Account]) -> LayoutState {
     let mut state = load(settings);
-    if state.materialize(accounts) {
+    let seeded = crate::layout_v1::seed_all(&mut state, accounts, &crate::layout_v1::LayoutV1Keys::read(settings));
+    if state.materialize(accounts) | seeded {
         state.prune(accounts);
         if let Err(error) = save(settings, &state) {
             log::warn("config", &format!("failed to persist layout: {error}"));
