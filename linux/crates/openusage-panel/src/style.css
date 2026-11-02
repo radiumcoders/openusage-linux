@@ -1,0 +1,222 @@
+/* Mac popover, drawn with GTK. Light is the base; dark follows the session, and
+   .force-light / .force-dark pin a scheme without fighting the media query. */
+
+window.openusage {
+  background: transparent;
+  font-family: "Adwaita Sans", sans-serif;
+}
+
+window.openusage .panel {
+  background: #f4f4f5;
+  color: #1d1d1f;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+window.openusage .card {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+window.openusage .secondary { color: #6e6e73; }
+window.openusage .tertiary { color: #8e8e93; }
+window.openusage .warn { color: #b35e00; }
+window.openusage .crit { color: #d70015; }
+window.openusage .problem { color: #b35e00; font-size: 11px; }
+window.openusage .figure-strong { color: #1d1d1f; }
+
+window.openusage .provider { font-size: 15px; font-weight: 600; }
+window.openusage .title { font-size: 13px; font-weight: 600; }
+window.openusage .title-quiet { font-size: 13px; font-weight: 500; }
+window.openusage .pace { font-size: 11px; }
+window.openusage .figure { font-size: 12px; }
+window.openusage .reset { font-size: 12px; }
+window.openusage .account { font-size: 12px; font-weight: 600; }
+window.openusage .caption { font-size: 11px; }
+window.openusage .section { font-size: 11px; font-weight: 600; }
+window.openusage .prio-title { font-size: 13px; font-weight: 560; }
+window.openusage .prio-quiet { font-size: 13px; font-weight: 450; }
+window.openusage .nums { font-variant-numeric: tabular-nums; }
+window.openusage .status { font-size: 12px; font-weight: 700; min-width: 12px; }
+window.openusage .status-warn { color: #b35e00; }
+window.openusage .footer-text { font-size: 12px; }
+window.openusage .refresh-icon { font-size: 13px; font-weight: 650; }
+
+window.openusage .plan-badge {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+window.openusage .plan { font-size: 10px; font-weight: 560; }
+
+window.openusage .segments {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 2px;
+}
+window.openusage button {
+  background: none;
+  border: none;
+  box-shadow: none;
+  background-image: none;
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  outline: none;
+}
+window.openusage .segments button {
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-weight: 450;
+  color: #6e6e73;
+}
+window.openusage .segments button:checked {
+  background: #ffffff;
+  color: #1d1d1f;
+  font-weight: 600;
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.12);
+}
+window.openusage button.refresh {
+  background: rgba(0, 0, 0, 0.06);
+  color: #6e6e73;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+window.openusage button.refresh:hover { background: rgba(0, 0, 0, 0.1); }
+window.openusage button.link {
+  color: #007aff;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+window.openusage button.plain:hover { opacity: 0.65; }
+
+window.openusage .check {
+  background: rgba(52, 199, 89, 0.16);
+  color: #248a3d;
+  border-radius: 999px;
+}
+window.openusage .check-mark {
+  color: #248a3d;
+  font-size: 24px;
+  font-weight: 700;
+}
+window.openusage .check-small {
+  background: rgba(52, 199, 89, 0.16);
+  color: #248a3d;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+}
+window.openusage .ring-outer {
+  border: 1px solid rgba(52, 199, 89, 0.18);
+  border-radius: 999px;
+}
+window.openusage .ring-mid {
+  border: 1px solid rgba(52, 199, 89, 0.32);
+  border-radius: 999px;
+}
+window.openusage .all-clear-title { font-size: 15px; font-weight: 650; }
+window.openusage .empty-title { font-size: 13px; font-weight: 560; }
+window.openusage .empty-headline { font-size: 19px; font-weight: 650; }
+window.openusage .empty-copy { font-size: 12px; }
+window.openusage .command-pill {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+window.openusage .command {
+  font-family: "Adwaita Mono", monospace;
+  font-size: 12px;
+  color: #1d1d1f;
+}
+
+window.openusage separator.footer-line,
+window.openusage separator.hairline {
+  background: rgba(0, 0, 0, 0.08);
+  min-height: 1px;
+  margin: 0;
+}
+window.openusage scrolledwindow,
+window.openusage scrolledwindow > viewport {
+  background: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  window.openusage:not(.force-light) .panel {
+    background: #1c1c1e;
+    color: #f5f5f7;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  window.openusage:not(.force-light) .card {
+    background: #2c2c2e;
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  window.openusage:not(.force-light) .secondary { color: #98989d; }
+  window.openusage:not(.force-light) .tertiary { color: #636366; }
+  window.openusage:not(.force-light) .warn,
+  window.openusage:not(.force-light) .problem,
+  window.openusage:not(.force-light) .status-warn { color: #ff9f0a; }
+  window.openusage:not(.force-light) .crit { color: #ff453a; }
+  window.openusage:not(.force-light) .figure-strong { color: #f5f5f7; }
+  window.openusage:not(.force-light) .plan-badge { background: rgba(255, 255, 255, 0.1); }
+  window.openusage:not(.force-light) .segments { background: rgba(255, 255, 255, 0.1); }
+  window.openusage:not(.force-light) .segments button { color: #98989d; }
+  window.openusage:not(.force-light) .segments button:checked {
+    background: rgba(255, 255, 255, 0.16);
+    color: #f5f5f7;
+  }
+  window.openusage:not(.force-light) button.refresh {
+    background: rgba(255, 255, 255, 0.1);
+    color: #98989d;
+  }
+  window.openusage:not(.force-light) button.refresh:hover { background: rgba(255, 255, 255, 0.16); }
+  window.openusage:not(.force-light) button.link { color: #0a84ff; }
+  window.openusage:not(.force-light) .check,
+  window.openusage:not(.force-light) .check-small { background: rgba(48, 209, 88, 0.18); }
+  window.openusage:not(.force-light) .check-mark,
+  window.openusage:not(.force-light) .check,
+  window.openusage:not(.force-light) .check-small { color: #30d158; }
+  window.openusage:not(.force-light) .command-pill { background: rgba(255, 255, 255, 0.1); }
+  window.openusage:not(.force-light) .command { color: #f5f5f7; }
+  window.openusage:not(.force-light) separator.footer-line,
+  window.openusage:not(.force-light) separator.hairline { background: rgba(255, 255, 255, 0.1); }
+}
+
+window.openusage.force-dark .panel {
+  background: #1c1c1e;
+  color: #f5f5f7;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+window.openusage.force-dark .card {
+  background: #2c2c2e;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+window.openusage.force-dark .secondary { color: #98989d; }
+window.openusage.force-dark .tertiary { color: #636366; }
+window.openusage.force-dark .warn,
+window.openusage.force-dark .problem,
+window.openusage.force-dark .status-warn { color: #ff9f0a; }
+window.openusage.force-dark .crit { color: #ff453a; }
+window.openusage.force-dark .figure-strong { color: #f5f5f7; }
+window.openusage.force-dark .plan-badge { background: rgba(255, 255, 255, 0.1); }
+window.openusage.force-dark .segments { background: rgba(255, 255, 255, 0.1); }
+window.openusage.force-dark .segments button { color: #98989d; }
+window.openusage.force-dark .segments button:checked {
+  background: rgba(255, 255, 255, 0.16);
+  color: #f5f5f7;
+}
+window.openusage.force-dark button.refresh {
+  background: rgba(255, 255, 255, 0.1);
+  color: #98989d;
+}
+window.openusage.force-dark button.refresh:hover { background: rgba(255, 255, 255, 0.16); }
+window.openusage.force-dark button.link { color: #0a84ff; }
+window.openusage.force-dark .check,
+window.openusage.force-dark .check-small { background: rgba(48, 209, 88, 0.18); color: #30d158; }
+window.openusage.force-dark .check-mark { color: #30d158; }
+window.openusage.force-dark .command-pill { background: rgba(255, 255, 255, 0.1); }
+window.openusage.force-dark .command { color: #f5f5f7; }
+window.openusage.force-dark separator.footer-line,
+window.openusage.force-dark separator.hairline { background: rgba(255, 255, 255, 0.1); }

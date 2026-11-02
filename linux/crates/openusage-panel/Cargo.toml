@@ -11,5 +11,10 @@ path = "src/main.rs"
 [dependencies]
 openusage-core.workspace = true
 chrono.workspace = true
-gtk4.workspace = true
+gtk4 = { workspace = true, features = ["v4_20"] }
 gtk4-layer-shell.workspace = true
+libc.workspace = true
+serde_json.workspace = true
+cairo-rs = "0.21"
+pango = "0.21"
+resvg = "0.49"
