@@ -7,16 +7,22 @@ use chrono::{DateTime, Utc};
 
 use openusage_core::dashboard::{self, DashboardAccount};
 use openusage_core::kind::ProviderKind;
+use openusage_core::metric::ProviderSnapshot;
 use openusage_core::paths;
 use openusage_core::refresh::INTERVAL_SECONDS;
 use openusage_core::store::{Settings, SnapshotCache};
 use openusage_core::widget::{self, DisplayMode};
+
+pub const METER_KEY: &str = "meterStyle";
+pub const RESET_KEY: &str = "resetDisplayMode";
 
 pub struct Model {
     pub accounts: Vec<DashboardAccount>,
     pub families: Vec<Family>,
     pub refreshed_at: Option<DateTime<Utc>>,
     pub now: DateTime<Utc>,
+    pub absolute_resets: bool,
+    pub snapshots: BTreeMap<String, ProviderSnapshot>,
 }
 
 pub struct Family {
@@ -24,14 +30,54 @@ pub struct Family {
     pub indexes: Vec<usize>,
 }
 
-pub fn load(mode: DisplayMode) -> Model {
-    let stored = Settings::open().accounts();
+pub fn load() -> Model {
+    let settings = Settings::open();
+    let mode = display_mode(&settings);
+    let absolute_resets = settings.string(RESET_KEY).as_deref() == Some("absolute");
+    let stored = settings.accounts();
     let snapshots = SnapshotCache::open().load();
     let now = Utc::now();
     let refreshed_at = snapshots.values().map(|snapshot| snapshot.refreshed_at).max();
     let accounts = dashboard::accounts(&stored, &snapshots, &account_problems(now), mode, now);
     let families = families_of(&accounts);
-    Model { accounts, families, refreshed_at, now }
+    Model { accounts, families, refreshed_at, now, absolute_resets, snapshots }
+}
+
+pub fn display_mode(settings: &Settings) -> DisplayMode {
+    match settings.string(METER_KEY).as_deref() {
+        Some("used") => DisplayMode::Used,
+        _ => DisplayMode::Remaining,
+    }
+}
+
+pub fn set_display_mode(mode: DisplayMode) {
+    let raw = match mode {
+        DisplayMode::Used => "used",
+        DisplayMode::Remaining => "remaining",
+    };
+    if let Err(error) = Settings::open().set_string(METER_KEY, raw) {
+        openusage_core::log::error("panel", &format!("could not save meter style: {error}"));
+    }
+}
+
+pub fn toggle_display_mode() {
+    let next = match display_mode(&Settings::open()) {
+        DisplayMode::Used => DisplayMode::Remaining,
+        DisplayMode::Remaining => DisplayMode::Used,
+    };
+    set_display_mode(next);
+}
+
+pub fn set_absolute_resets(absolute: bool) {
+    let raw = if absolute { "absolute" } else { "relative" };
+    if let Err(error) = Settings::open().set_string(RESET_KEY, raw) {
+        openusage_core::log::error("panel", &format!("could not save reset times: {error}"));
+    }
+}
+
+pub fn toggle_resets() {
+    let absolute = Settings::open().string(RESET_KEY).as_deref() == Some("absolute");
+    set_absolute_resets(!absolute);
 }
 
 fn families_of(accounts: &[DashboardAccount]) -> Vec<Family> {

@@ -1,14 +1,23 @@
 //! The panel chrome: tabs, provider cards, and the footer. Row drawing lives in `rows`.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
+use gtk4::gio;
+use uuid::Uuid;
 
+use openusage_core::claims;
 use openusage_core::dashboard::DashboardAccount;
 
 use crate::icons;
+use crate::menu::{self, Act};
 use crate::model::{self, Model};
-use crate::rows;
+use crate::priority;
+use crate::resets::ClaimChrome;
+use crate::rows::{self, Extra, Toggles};
+use crate::state::{ClaimPhase, ClaimUi, Preview};
+use crate::ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -27,8 +36,21 @@ impl Tab {
 
 pub struct Actions {
     pub on_tab: Rc<dyn Fn(Tab)>,
-    pub on_toggle_mode: Rc<dyn Fn()>,
+    pub on_toggle_meter: Rc<dyn Fn()>,
+    pub on_toggle_reset: Rc<dyn Fn()>,
     pub on_refresh: Rc<dyn Fn()>,
+    pub on_fix: Rc<dyn Fn(Uuid)>,
+    pub on_add: Rc<dyn Fn()>,
+    pub on_menu: Rc<dyn Fn(usize, Act)>,
+    pub on_claim: Rc<dyn Fn(Uuid)>,
+    pub on_claim_reset: Rc<dyn Fn()>,
+    pub on_claim_cancel: Rc<dyn Fn()>,
+}
+
+pub struct Chrome {
+    pub preview: Preview,
+    pub claim: ClaimUi,
+    pub banner: Option<String>,
 }
 
 pub struct Built {
@@ -38,7 +60,7 @@ pub struct Built {
     pub next: Option<gtk4::Label>,
 }
 
-pub fn build(model: &Model, tab: Tab, refreshing: bool, actions: &Actions, max_height: i32) -> Built {
+pub fn build(model: &Model, tab: Tab, refreshing: bool, actions: &Actions, chrome: &Chrome, max_height: i32) -> Built {
     let root = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     root.add_css_class("panel");
     root.set_width_request(340);
@@ -48,41 +70,49 @@ pub fn build(model: &Model, tab: Tab, refreshing: bool, actions: &Actions, max_h
     root.append(&top);
 
     let content = if model.accounts.is_empty() {
-        empty_state()
+        empty_state(&actions.on_add)
     } else {
         match tab {
-            Tab::Priority => rows::priority_view(model, &actions.on_toggle_mode, &{
+            Tab::Priority => priority::view(model, &actions.on_toggle_meter, &actions.on_toggle_reset, &{
                 let on_tab = actions.on_tab.clone();
                 Rc::new(move || on_tab(Tab::All)) as Rc<dyn Fn()>
-            }),
-            Tab::All => all_usage(model, &actions.on_toggle_mode),
+            }, &actions.on_fix),
+            Tab::All => all_usage(model, actions, chrome),
         }
     };
-    content.set_margin_start(12);
-    content.set_margin_end(12);
-    content.set_margin_top(2);
-    content.set_margin_bottom(8);
+    let body = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
+    if let Some(banner) = &chrome.banner {
+        let label = ui::text(banner, &["caption"]);
+        label.set_wrap(true);
+        label.add_css_class("banner");
+        body.append(&label);
+    }
+    body.append(&content);
+    body.set_margin_start(12);
+    body.set_margin_end(12);
+    body.set_margin_top(2);
+    body.set_margin_bottom(8);
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
     scroll.set_propagate_natural_height(true);
     scroll.add_css_class("body");
     let (_, top_h, _, _) = top.measure(gtk4::Orientation::Vertical, 340);
-    let footer_h = if model.accounts.is_empty() { 0 } else { 52 };
+    let footer_h = 52;
     scroll.set_max_content_height((max_height - top_h - footer_h).max(160));
-    scroll.set_child(Some(&content));
+    scroll.set_child(Some(&body));
     root.append(&scroll);
 
-    let (updated, next) = if model.accounts.is_empty() {
-        (None, None)
+    let (footer, updated, next) = if model.accounts.is_empty() {
+        (menu_footer(), None, None)
     } else {
         let (footer, updated, next) = footer(model, refreshing, &actions.on_refresh);
-        let rule = gtk4::Separator::new(gtk4::Orientation::Horizontal);
-        rule.add_css_class("footer-line");
-        root.append(&rule);
-        root.append(&footer);
-        (Some(updated), Some(next))
+        (footer, Some(updated), Some(next))
     };
+    let rule = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+    rule.add_css_class("footer-line");
+    root.append(&rule);
+    root.append(&footer);
 
     Built { root, scroll, updated, next }
 }
@@ -125,15 +155,30 @@ fn segment(label: &str, active: bool) -> gtk4::ToggleButton {
     button
 }
 
-fn all_usage(model: &Model, on_toggle: &Rc<dyn Fn()>) -> gtk4::Widget {
+fn all_usage(model: &Model, actions: &Actions, chrome: &Chrome) -> gtk4::Widget {
     let list = gtk4::Box::new(gtk4::Orientation::Vertical, 14);
+    let toggles = Toggles {
+        meter: actions.on_toggle_meter.clone(),
+        reset: actions.on_toggle_reset.clone(),
+        breakdown: Rc::new(|anchor, title, breakdown| crate::breakdown::show_popover(anchor, &title, &breakdown)),
+    };
+    let menu_shown = Cell::new(false);
+    let breakdown_shown = Cell::new(false);
     for family in &model.families {
-        list.append(&provider_card(model, family.indexes.as_slice(), on_toggle));
+        list.append(&provider_card(model, family.indexes.as_slice(), actions, chrome, &toggles, &menu_shown, &breakdown_shown));
     }
     list.upcast()
 }
 
-fn provider_card(model: &Model, indexes: &[usize], on_toggle: &Rc<dyn Fn()>) -> gtk4::Box {
+fn provider_card(
+    model: &Model,
+    indexes: &[usize],
+    actions: &Actions,
+    chrome: &Chrome,
+    toggles: &Toggles,
+    menu_shown: &Cell<bool>,
+    breakdown_shown: &Cell<bool>,
+) -> gtk4::Box {
     let card = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     card.add_css_class("card");
     let inner = gtk4::Box::new(gtk4::Orientation::Vertical, 8);
@@ -145,7 +190,16 @@ fn provider_card(model: &Model, indexes: &[usize], on_toggle: &Rc<dyn Fn()>) -> 
     let first = &model.accounts[indexes[0]];
     let siblings = indexes.len();
     let plan_on_header = !model::shows_account_label(first, siblings);
-    inner.append(&header(first, plan_on_header));
+    let header = header(first, plan_on_header);
+    if plan_on_header {
+        bind_menu(&header, indexes[0], first, actions);
+        inner.append(&header);
+        if preview_menu(chrome, first, menu_shown) {
+            inner.append(&menu_inline(indexes[0], first, actions));
+        }
+    } else {
+        inner.append(&header);
+    }
 
     for (offset, index) in indexes.iter().enumerate() {
         if offset > 0 {
@@ -155,10 +209,43 @@ fn provider_card(model: &Model, indexes: &[usize], on_toggle: &Rc<dyn Fn()>) -> 
             inner.append(&rule);
         }
         let account = &model.accounts[*index];
-        inner.append(&account_block(account, siblings, on_toggle, model.now));
+        inner.append(&account_block(model, *index, account, siblings, actions, chrome, toggles, menu_shown, breakdown_shown));
     }
     card.append(&inner);
     card
+}
+
+fn bind_menu(widget: &impl IsA<gtk4::Widget>, index: usize, account: &DashboardAccount, actions: &Actions) {
+    let on_menu = actions.on_menu.clone();
+    menu::bind_right_click(widget.upcast_ref(), menu_items(account), Rc::new(move |act| on_menu(index, act)));
+}
+
+fn menu_items(account: &DashboardAccount) -> Vec<menu::Item> {
+    let links = account
+        .account
+        .kind
+        .links()
+        .into_iter()
+        .map(|link| (link.label.to_string(), link.url.to_string()))
+        .collect::<Vec<_>>();
+    menu::items(account.problem.as_deref(), &links, account.account.hub.is_some())
+}
+
+fn preview_menu(chrome: &Chrome, account: &DashboardAccount, shown: &Cell<bool>) -> bool {
+    if !chrome.preview.menu || shown.get() {
+        return false;
+    }
+    let problem = account.problem.as_deref().is_some_and(|text| !text.starts_with("Last updated"));
+    if !problem {
+        return false;
+    }
+    shown.set(true);
+    true
+}
+
+fn menu_inline(index: usize, account: &DashboardAccount, actions: &Actions) -> gtk4::Box {
+    let on_menu = actions.on_menu.clone();
+    menu::inline(&menu_items(account), Rc::new(move |act| on_menu(index, act)))
 }
 
 fn header(account: &DashboardAccount, plan_on_header: bool) -> gtk4::Box {
@@ -182,7 +269,17 @@ fn header(account: &DashboardAccount, plan_on_header: bool) -> gtk4::Box {
     row
 }
 
-fn account_block(account: &DashboardAccount, siblings: usize, on_toggle: &Rc<dyn Fn()>, now: chrono::DateTime<chrono::Utc>) -> gtk4::Box {
+fn account_block(
+    model: &Model,
+    index: usize,
+    account: &DashboardAccount,
+    siblings: usize,
+    actions: &Actions,
+    chrome: &Chrome,
+    toggles: &Toggles,
+    menu_shown: &Cell<bool>,
+    breakdown_shown: &Cell<bool>,
+) -> gtk4::Box {
     let block = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
     if model::shows_account_label(account, siblings) {
         let caption = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
@@ -205,8 +302,65 @@ fn account_block(account: &DashboardAccount, siblings: usize, on_toggle: &Rc<dyn
         }
         block.append(&caption);
     }
-    block.append(&rows::account_body(account, now, on_toggle));
+    bind_menu(&block, index, account, actions);
+    if siblings > 1 && preview_menu(chrome, account, menu_shown) {
+        block.append(&menu_inline(index, account, actions));
+    }
+    let snapshot = model.snapshots.get(&account.account.card_id());
+    let offer = claims::offer(&account.account, snapshot).or_else(|| preview_offer(account, chrome.preview.claim));
+    block.append(&rows::account_body(account, model.now, model.absolute_resets, toggles, &|line| {
+        let breakdown = snapshot.and_then(|snapshot| snapshot.breakdowns.get(line.descriptor.key).cloned());
+        let inline_breakdown = breakdown.is_some() && chrome.preview.breakdown && !breakdown_shown.replace(true);
+        let claim = claim_chrome(account, line, offer.as_ref(), chrome, actions);
+        Extra { breakdown, inline_breakdown, claim }
+    }));
     block
+}
+
+fn preview_offer(account: &DashboardAccount, preview: bool) -> Option<openusage_core::claims::ClaimOffer> {
+    if !preview {
+        return None;
+    }
+    let has_resets = account.lines.iter().any(|line| line.descriptor.shows_reset_expiries() && line.data.has_data);
+    has_resets.then(|| openusage_core::claims::ClaimOffer {
+        confirm_detail: Some("Resets your weekly limit".into()),
+        expiries: vec![model_now_plus_days(3)],
+    })
+}
+
+fn model_now_plus_days(days: i64) -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now() + chrono::Duration::days(days)
+}
+
+fn claim_chrome(
+    account: &DashboardAccount,
+    line: &openusage_core::dashboard::DashboardLine,
+    offer: Option<&openusage_core::claims::ClaimOffer>,
+    chrome: &Chrome,
+    actions: &Actions,
+) -> Option<ClaimChrome> {
+    if !line.descriptor.shows_reset_expiries() || !line.data.has_data {
+        return None;
+    }
+    let offer = offer?;
+    let active = chrome.claim.account == Some(account.account.id);
+    let phase = if active { chrome.claim.phase.clone() } else { ClaimPhase::Idle };
+    let phase = match phase {
+        ClaimPhase::Idle => ClaimPhase::Idle,
+        ClaimPhase::Confirm { .. } => ClaimPhase::Confirm {
+            detail: offer.confirm_detail.clone(),
+            expiring: offer.expiries.first().copied(),
+        },
+        other => other,
+    };
+    let id = account.account.id;
+    let on_claim = actions.on_claim.clone();
+    Some(ClaimChrome {
+        phase,
+        on_use: Rc::new(move || on_claim(id)),
+        on_reset: actions.on_claim_reset.clone(),
+        on_cancel: actions.on_claim_cancel.clone(),
+    })
 }
 
 fn plan_badge(plan: &str) -> gtk4::Box {
@@ -266,10 +420,37 @@ fn footer(model: &Model, refreshing: bool, on_refresh: &Rc<dyn Fn()>) -> (gtk4::
     let on_refresh = on_refresh.clone();
     button.connect_clicked(move |_| on_refresh());
     footer.append(&button);
+    footer.append(&options_button());
     (footer, updated, next)
 }
 
-fn empty_state() -> gtk4::Widget {
+fn menu_footer() -> gtk4::Box {
+    let footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    footer.add_css_class("footer");
+    footer.set_margin_start(14);
+    footer.set_margin_end(12);
+    footer.set_margin_top(8);
+    footer.set_margin_bottom(12);
+    let spring = gtk4::Label::new(None);
+    spring.set_hexpand(true);
+    footer.append(&spring);
+    footer.append(&options_button());
+    footer
+}
+
+pub fn options_button() -> gtk4::MenuButton {
+    let menu = gio::Menu::new();
+    menu.append(Some("Accounts"), Some("win.accounts"));
+    menu.append(Some("Settings"), Some("win.settings"));
+    let button = gtk4::MenuButton::new();
+    button.set_label("⋯");
+    button.set_menu_model(Some(&menu));
+    button.add_css_class("options");
+    button.set_always_show_arrow(false);
+    button
+}
+
+fn empty_state(on_add: &Rc<dyn Fn()>) -> gtk4::Widget {
     let box_ = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     box_.set_halign(gtk4::Align::Center);
     box_.set_margin_top(22);
@@ -289,7 +470,7 @@ fn empty_state() -> gtk4::Widget {
     box_.append(&title);
 
     let message = gtk4::Label::new(Some(
-        "OpenUsage tracks however many accounts you'd like to monitor. Add them from the terminal and they show up here, even several of the same provider.",
+        "OpenUsage tracks however many accounts you'd like to monitor, even several of the same provider.",
     ));
     message.add_css_class("secondary");
     message.add_css_class("empty-copy");
@@ -300,14 +481,8 @@ fn empty_state() -> gtk4::Widget {
     message.set_margin_bottom(16);
     box_.append(&message);
 
-    let command = gtk4::Label::new(Some("openusage add <provider>"));
-    command.add_css_class("command");
-    command.set_selectable(true);
-    command.set_halign(gtk4::Align::Center);
-    let pill = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    pill.add_css_class("command-pill");
-    pill.set_halign(gtk4::Align::Center);
-    pill.append(&command);
-    box_.append(&pill);
+    let add = ui::button("Add Account", "primary", on_add.clone());
+    add.set_halign(gtk4::Align::Center);
+    box_.append(&add);
     box_.upcast()
 }

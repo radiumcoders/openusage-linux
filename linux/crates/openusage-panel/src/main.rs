@@ -1,17 +1,32 @@
+mod accounts_page;
+mod add_page;
+mod breakdown;
+mod fixture;
+mod format;
 mod icons;
+mod launch;
+mod menu;
+mod nav;
 mod model;
 mod position;
+mod priority;
+mod prompter;
+mod resets;
 mod rows;
+mod session;
+mod settings_page;
+mod state;
+mod ui;
 mod view;
 mod window;
-
-#[cfg(test)]
-mod fixture;
 
 use gtk4::prelude::*;
 use gtk4::{gdk, gio};
 
 fn main() {
+    if let Some(root) = std::env::var_os("OPENUSAGE_FIXTURE") {
+        fixture::write(std::path::Path::new(&root));
+    }
     let app = gtk4::Application::builder()
         .application_id("dev.openusage.Panel")
         .flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE)

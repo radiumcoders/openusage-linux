@@ -10,13 +10,13 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use openusage_core::account::Account;
+use openusage_core::daemon::PidLock;
 use openusage_core::dashboard::{self, DashboardAccount};
 use openusage_core::engine::{self, AccountStatus, Engine};
 use openusage_core::metric::ProviderSnapshot;
 use openusage_core::refresh::INTERVAL_SECONDS;
 use openusage_core::store::{Settings, SnapshotCache};
-use openusage_core::widget::{Severity, WidgetData, DisplayMode, IMMINENT};
-use openusage_core::daemon::PidLock;
+use openusage_core::widget::{DisplayMode, Severity, WidgetData, IMMINENT};
 use serde_json::{Map, Value};
 
 use crate::notify::Notifier;
@@ -35,7 +35,14 @@ pub fn run(once: bool, icon: &str) -> i32 {
         let accounts = Settings::open().accounts();
         let snapshots = SnapshotCache::open().load();
         let statuses = engine::load_statuses();
-        let _ = emit_line(&render(&accounts, &snapshots, &statuses, icon, &bar_options(), Utc::now()));
+        let _ = emit_line(&render(
+            &accounts,
+            &snapshots,
+            &statuses,
+            icon,
+            &bar_options(),
+            Utc::now(),
+        ));
         return 0;
     }
     let _lock = match PidLock::acquire() {
@@ -62,7 +69,10 @@ pub fn run(once: bool, icon: &str) -> i32 {
     let mut hourly_at = Instant::now() + interval / 2;
     let mut hourly_done = false;
     while !wake.stopped() {
-        if let Some(force) = wake.take_reload().or_else(|| engine.accounts_changed_on_disk().then_some(false)) {
+        if let Some(force) = wake
+            .take_reload()
+            .or_else(|| engine.accounts_changed_on_disk().then_some(false))
+        {
             if !cycle(&mut engine, &mut quotas, icon, force) {
                 return 0;
             }
@@ -128,7 +138,14 @@ fn cycle(engine: &mut Engine, quotas: &mut Notifier, icon: &str, force: bool) ->
 }
 
 fn emit_view(engine: &Engine, icon: &str) -> bool {
-    emit_line(&render(engine.accounts(), engine.snapshots(), engine.statuses(), icon, &bar_options(), Utc::now()))
+    emit_line(&render(
+        engine.accounts(),
+        engine.snapshots(),
+        engine.statuses(),
+        icon,
+        &bar_options(),
+        Utc::now(),
+    ))
 }
 
 struct BarOptions {
@@ -167,20 +184,43 @@ fn render(
     let board = dashboard::PriorityBoard::make(&view, now);
     let badges = dashboard::badges(accounts);
     let (items, overflow) = dashboard::strip(&board, limit, &badges);
-    let failed = accounts.iter().any(|account| statuses.get(&account.card_id()).is_some_and(|status| !status.provider_asked));
-    let stale = accounts.iter().any(|account| snapshots.get(&account.card_id()).is_some_and(|snapshot| snapshot.is_stale(now)));
+    let failed = accounts.iter().any(|account| {
+        statuses
+            .get(&account.card_id())
+            .is_some_and(|status| !status.provider_asked)
+    });
+    let stale = accounts.iter().any(|account| {
+        snapshots
+            .get(&account.card_id())
+            .is_some_and(|snapshot| snapshot.is_stale(now))
+    });
     let (percentage, severity) = module_meter(&view);
     let classes = classes(accounts.is_empty(), severity, failed, stale);
     let tooltip = if accounts.is_empty() {
-        "<b>OpenUsage</b>\nNo accounts yet. Add one in a terminal:\nopenusage add &lt;provider&gt;".to_string()
+        "<b>OpenUsage</b>\nNo accounts yet. Add one in a terminal:\nopenusage add &lt;provider&gt;"
+            .to_string()
     } else {
-        view.iter().map(|account| account_markup(account, absolute, now)).collect::<Vec<_>>().join("\n\n")
+        view.iter()
+            .map(|account| account_markup(account, absolute, now))
+            .collect::<Vec<_>>()
+            .join("\n\n")
     };
     let mut payload = Map::new();
     payload.insert("alt".into(), Value::String(classes.join(" ")));
-    payload.insert("class".into(), Value::Array(classes.iter().map(|name| Value::String((*name).to_string())).collect()));
+    payload.insert(
+        "class".into(),
+        Value::Array(
+            classes
+                .iter()
+                .map(|name| Value::String((*name).to_string()))
+                .collect(),
+        ),
+    );
     payload.insert("percentage".into(), Value::Number(percentage.into()));
-    payload.insert("text".into(), Value::String(strip_text(&items, overflow, icon)));
+    payload.insert(
+        "text".into(),
+        Value::String(strip_text(&items, overflow, icon)),
+    );
     payload.insert("tooltip".into(), Value::String(tooltip));
     serde_json::to_string(&Value::Object(payload)).unwrap_or_else(|_| {
         r#"{"alt":"error","class":["error"],"percentage":0,"text":"?","tooltip":""}"#.into()
@@ -212,7 +252,9 @@ fn module_meter(accounts: &[DashboardAccount]) -> (i64, Severity) {
     for account in accounts {
         for line in &account.lines {
             let data = &line.data;
-            let Some(limit) = data.limit.filter(|limit| data.has_data && *limit > 0.0) else { continue };
+            let Some(limit) = data.limit.filter(|limit| data.has_data && *limit > 0.0) else {
+                continue;
+            };
             percentage = percentage.max(used_percent(data.used, limit));
             if rank(data.severity()) > rank(worst) {
                 worst = data.severity();
@@ -250,7 +292,11 @@ fn account_markup(account: &DashboardAccount, absolute: bool, now: DateTime<Utc>
     for line in &account.lines {
         lines.push(metric_markup(&line.data, absolute, now));
     }
-    if let Some(problem) = account.problem.as_ref().filter(|problem| !problem.is_empty()) {
+    if let Some(problem) = account
+        .problem
+        .as_ref()
+        .filter(|problem| !problem.is_empty())
+    {
         lines.push(escape(problem));
     }
     lines.join("\n")
@@ -266,7 +312,11 @@ fn metric_markup(data: &WidgetData, absolute: bool, now: DateTime<Utc>) -> Strin
         }
     }
     // The Mac row's wording: "63% left", "$12 left", "$49.85 · 35.8M tokens".
-    let amount = if data.has_data && data.is_bounded() { data.amount_text() } else { data.unbounded_figures().join(" · ") };
+    let amount = if data.has_data && data.is_bounded() {
+        data.amount_text()
+    } else {
+        data.unbounded_figures().join(" · ")
+    };
     parts.push(escape(&amount));
     if let Some(reset) = reset_label(data, absolute, now) {
         if !reset.is_empty() {
@@ -280,7 +330,9 @@ fn reset_label(data: &WidgetData, absolute: bool, now: DateTime<Utc>) -> Option<
     if !absolute {
         return data.reset_text(now);
     }
-    let resets_at = data.resets_at.filter(|_| data.has_data && !data.is_fresh_session_window(now))?;
+    let resets_at = data
+        .resets_at
+        .filter(|_| data.has_data && !data.is_fresh_session_window(now))?;
     if resets_at <= now {
         Some(IMMINENT.to_string())
     } else {
@@ -289,7 +341,8 @@ fn reset_label(data: &WidgetData, absolute: bool, now: DateTime<Utc>) -> Option<
 }
 
 fn bar(fraction: f64) -> String {
-    let filled = ((fraction.clamp(0.0, 1.0) * BAR_WIDTH as f64).round() as isize).clamp(0, BAR_WIDTH as isize) as usize;
+    let filled = ((fraction.clamp(0.0, 1.0) * BAR_WIDTH as f64).round() as isize)
+        .clamp(0, BAR_WIDTH as isize) as usize;
     format!("{}{}", "█".repeat(filled), "░".repeat(BAR_WIDTH - filled))
 }
 
@@ -309,7 +362,9 @@ fn rank(severity: Severity) -> u8 {
 }
 
 fn escape(text: &str) -> String {
-    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 struct Wake {
@@ -321,7 +376,10 @@ impl Wake {
     fn install() -> Result<Self, String> {
         let mut fds = [0; 2];
         if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) } != 0 {
-            return Err(format!("Could not watch for refresh signals: {}", std::io::Error::last_os_error()));
+            return Err(format!(
+                "Could not watch for refresh signals: {}",
+                std::io::Error::last_os_error()
+            ));
         }
         let wake = Self {
             read: unsafe { OwnedFd::from_raw_fd(fds[0]) },
@@ -362,7 +420,11 @@ impl Wake {
             }
             let left = deadline.saturating_duration_since(Instant::now());
             let millis = left.as_millis().min(i32::MAX as u128) as i32;
-            let mut poll = libc::pollfd { fd: self.read.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+            let mut poll = libc::pollfd {
+                fd: self.read.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
             let ready = unsafe { libc::poll(&mut poll, 1, millis) };
             if ready == 0 {
                 continue;
@@ -378,7 +440,13 @@ impl Wake {
     fn drain(&self) {
         let mut buffer = [0u8; 64];
         loop {
-            let count = unsafe { libc::read(self.read.as_raw_fd(), buffer.as_mut_ptr() as *mut libc::c_void, buffer.len()) };
+            let count = unsafe {
+                libc::read(
+                    self.read.as_raw_fd(),
+                    buffer.as_mut_ptr() as *mut libc::c_void,
+                    buffer.len(),
+                )
+            };
             if count <= 0 {
                 break;
             }
@@ -414,20 +482,34 @@ mod tests {
     use openusage_core::metric::{MetricLine, ProviderSnapshot};
 
     fn options() -> BarOptions {
-        BarOptions { mode: DisplayMode::Remaining, absolute_resets: false, limit: 3 }
+        BarOptions {
+            mode: DisplayMode::Remaining,
+            absolute_resets: false,
+            limit: 3,
+        }
     }
 
     fn account(label: &str) -> Account {
         Account::new(ProviderKind::Claude, label, None)
     }
 
-    fn weekly(account: &Account, used: f64, refreshed: DateTime<Utc>, notice: Option<&str>) -> ProviderSnapshot {
+    fn weekly(
+        account: &Account,
+        used: f64,
+        refreshed: DateTime<Utc>,
+        notice: Option<&str>,
+    ) -> ProviderSnapshot {
         ProviderSnapshot {
             breakdowns: Default::default(),
             provider_id: account.card_id(),
             display_name: "Claude".into(),
             plan: Some("Pro".into()),
-            lines: vec![MetricLine::percent("Weekly", used, Some(refreshed + chrono::Duration::hours(30)), Some(7 * 24 * 3600 * 1000))],
+            lines: vec![MetricLine::percent(
+                "Weekly",
+                used,
+                Some(refreshed + chrono::Duration::hours(30)),
+                Some(7 * 24 * 3600 * 1000),
+            )],
             notice: notice.map(str::to_string),
             refreshed_at: refreshed,
         }
@@ -437,20 +519,46 @@ mod tests {
     fn waybar_json_matches_the_strip_classes_and_escapes_pango() {
         let now = Utc::now();
         let options = options();
-        let empty: Value = serde_json::from_str(&render(&[], &BTreeMap::new(), &BTreeMap::new(), DEFAULT_ICON, &options, now)).unwrap();
+        let empty: Value = serde_json::from_str(&render(
+            &[],
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            DEFAULT_ICON,
+            &options,
+            now,
+        ))
+        .unwrap();
         assert_eq!(empty["text"], DEFAULT_ICON);
         assert_eq!(empty["class"], serde_json::json!(["empty"]));
-        assert!(empty["tooltip"].as_str().unwrap().contains("openusage add &lt;provider&gt;"));
+        assert!(empty["tooltip"]
+            .as_str()
+            .unwrap()
+            .contains("openusage add &lt;provider&gt;"));
 
         let calm = account("Work");
         let mut snapshots = BTreeMap::new();
         snapshots.insert(calm.card_id(), weekly(&calm, 10.0, now, None));
-        let quiet: Value = serde_json::from_str(&render(&[calm], &snapshots, &BTreeMap::new(), "ICON", &options, now)).unwrap();
+        let quiet: Value = serde_json::from_str(&render(
+            &[calm],
+            &snapshots,
+            &BTreeMap::new(),
+            "ICON",
+            &options,
+            now,
+        ))
+        .unwrap();
         assert_eq!(quiet["text"], "ICON");
         assert_eq!(quiet["class"], serde_json::json!(["normal"]));
         assert_eq!(quiet["percentage"], 10);
-        assert!(quiet["tooltip"].as_str().unwrap().contains("████████") || quiet["tooltip"].as_str().unwrap().contains('█'));
-        assert!(quiet["tooltip"].as_str().unwrap().contains("90% left"), "reads like the Mac row: {}", quiet["tooltip"]);
+        assert!(
+            quiet["tooltip"].as_str().unwrap().contains("████████")
+                || quiet["tooltip"].as_str().unwrap().contains('█')
+        );
+        assert!(
+            quiet["tooltip"].as_str().unwrap().contains("90% left"),
+            "reads like the Mac row: {}",
+            quiet["tooltip"]
+        );
 
         let hot = account("A&B <c>");
         let old = now - chrono::Duration::minutes(11);
@@ -466,8 +574,19 @@ mod tests {
                 retry_at: now + chrono::Duration::minutes(5),
             },
         );
-        let value: Value = serde_json::from_str(&render(std::slice::from_ref(&hot), &snapshots, &statuses, "ICON", &options, now)).unwrap();
-        assert_eq!(value["class"], serde_json::json!(["critical", "error", "stale"]));
+        let value: Value = serde_json::from_str(&render(
+            std::slice::from_ref(&hot),
+            &snapshots,
+            &statuses,
+            "ICON",
+            &options,
+            now,
+        ))
+        .unwrap();
+        assert_eq!(
+            value["class"],
+            serde_json::json!(["critical", "error", "stale"])
+        );
         assert_eq!(value["alt"], "critical error stale");
         assert_eq!(value["percentage"], 95);
         assert!(value["text"].as_str().unwrap().contains("Claude"));

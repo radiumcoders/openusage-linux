@@ -9,29 +9,40 @@ use gtk4::prelude::*;
 use gtk4::{gdk, gio, glib};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
-use openusage_core::widget::DisplayMode;
+use uuid::Uuid;
 
 use crate::model;
 use crate::position::{self, Corner};
-use crate::view::{self, Actions, Tab};
+use crate::state::{AddFlow, ClaimJob, ClaimUi, Preview, Screen, Signin};
+use crate::view::Tab;
 use crate::{forced_scheme, prefers_dark};
 
-struct Ctx {
-    window: gtk4::ApplicationWindow,
-    mode: Cell<DisplayMode>,
-    tab: Cell<Tab>,
-    refreshed_at: Cell<Option<DateTime<Utc>>>,
-    refreshing: Cell<bool>,
-    rebuilding: Cell<bool>,
-    dismiss_armed: Cell<bool>,
-    dirty: Cell<bool>,
-    shown: Cell<bool>,
-    updated: RefCell<Option<gtk4::Label>>,
-    next: RefCell<Option<gtk4::Label>>,
-    scroll: RefCell<Option<gtk4::ScrolledWindow>>,
-    monitors: RefCell<Vec<gio::FileMonitor>>,
-    corner: Corner,
-    max_height: Cell<i32>,
+pub(crate) struct Ctx {
+    pub(crate) window: gtk4::ApplicationWindow,
+    pub(crate) screen: RefCell<Screen>,
+    pub(crate) tab: Cell<Tab>,
+    pub(crate) refreshed_at: Cell<Option<DateTime<Utc>>>,
+    pub(crate) refreshing: Cell<bool>,
+    pub(crate) rebuilding: Cell<bool>,
+    pub(crate) dismiss_armed: Cell<bool>,
+    pub(crate) dirty: Cell<bool>,
+    pub(crate) shown: Cell<bool>,
+    pub(crate) updated: RefCell<Option<gtk4::Label>>,
+    pub(crate) next: RefCell<Option<gtk4::Label>>,
+    pub(crate) scroll: RefCell<Option<gtk4::ScrolledWindow>>,
+    pub(crate) monitors: RefCell<Vec<gio::FileMonitor>>,
+    pub(crate) corner: Corner,
+    pub(crate) max_height: Cell<i32>,
+    pub(crate) renaming: RefCell<Option<Uuid>>,
+    pub(crate) confirm_remove: Cell<bool>,
+    pub(crate) confirm_hub: RefCell<Option<Uuid>>,
+    pub(crate) notice: RefCell<Option<String>>,
+    pub(crate) add: RefCell<AddFlow>,
+    pub(crate) signin: RefCell<Option<Signin>>,
+    pub(crate) claim: RefCell<ClaimUi>,
+    pub(crate) claim_job: RefCell<Option<ClaimJob>>,
+    pub(crate) launch_applied: Cell<bool>,
+    pub(crate) preview: Cell<Preview>,
 }
 
 pub fn handle(app: &gtk4::Application, toggle: bool) {
@@ -81,7 +92,7 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
 
     let ctx = Rc::new(Ctx {
         window: window.clone(),
-        mode: Cell::new(DisplayMode::Remaining),
+        screen: RefCell::new(Screen::Dashboard),
         tab: Cell::new(Tab::initial()),
         refreshed_at: Cell::new(None),
         refreshing: Cell::new(false),
@@ -95,13 +106,33 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
         monitors: RefCell::new(Vec::new()),
         corner,
         max_height: Cell::new(available_height(corner)),
+        renaming: RefCell::new(None),
+        confirm_remove: Cell::new(false),
+        confirm_hub: RefCell::new(None),
+        notice: RefCell::new(None),
+        add: RefCell::new(AddFlow::fresh()),
+        signin: RefCell::new(None),
+        claim: RefCell::new(ClaimUi::default()),
+        claim_job: RefCell::new(None),
+        launch_applied: Cell::new(false),
+        preview: Cell::new(Preview::default()),
     });
+    install_commands(&ctx);
     install_dismiss(&ctx);
     watch_files(&ctx);
     glib::timeout_add_local(Duration::from_secs(1), {
         let ctx = ctx.clone();
         move || {
             tick_footer(&ctx);
+            glib::ControlFlow::Continue
+        }
+    });
+    glib::timeout_add_local(Duration::from_millis(120), {
+        let ctx = ctx.clone();
+        move || {
+            if crate::session::poll(&ctx) {
+                rebuild(&ctx, false);
+            }
             glib::ControlFlow::Continue
         }
     });
@@ -133,30 +164,34 @@ fn show(ctx: &Rc<Ctx>) {
 fn schedule_dump(ctx: &Rc<Ctx>) {
     let Some(path) = std::env::var_os("OPENUSAGE_DUMP") else { return };
     let ctx = ctx.clone();
-    glib::timeout_add_local(Duration::from_millis(350), move || {
+    glib::timeout_add_local(Duration::from_millis(450), move || {
         dump_panel(&ctx, std::path::Path::new(&path));
         glib::ControlFlow::Break
     });
 }
 
 fn dump_panel(ctx: &Ctx, path: &std::path::Path) {
-    let Some(child) = ctx.window.child() else { return };
-    let width = child.width().max(1);
-    let height = child.height().max(1);
-    let paintable = gtk4::WidgetPaintable::new(Some(&child));
-    let snapshot = gtk4::Snapshot::new();
-    paintable.snapshot(&snapshot, width as f64, height as f64);
-    let Some(node) = snapshot.to_node() else {
-        eprintln!("openusage-panel: dump produced an empty frame");
-        return;
-    };
-    let Some(renderer) = ctx.window.renderer() else {
-        eprintln!("openusage-panel: window has no renderer yet");
-        return;
-    };
-    match renderer.render_texture(&node, None).save_to_png(path) {
-        Ok(()) => eprintln!("openusage-panel: wrote {}", path.display()),
-        Err(error) => eprintln!("openusage-panel: dump failed: {error}"),
+    if let Some(child) = ctx.window.child() {
+        let width = child.width().max(1);
+        let height = child.height().max(1);
+        let paintable = gtk4::WidgetPaintable::new(Some(&child));
+        let snapshot = gtk4::Snapshot::new();
+        paintable.snapshot(&snapshot, width as f64, height as f64);
+        if let Some(node) = snapshot.to_node() {
+            if let Some(renderer) = ctx.window.renderer() {
+                match renderer.render_texture(&node, None).save_to_png(path) {
+                    Ok(()) => eprintln!("openusage-panel: wrote {}", path.display()),
+                    Err(error) => eprintln!("openusage-panel: dump failed: {error}"),
+                }
+            } else {
+                eprintln!("openusage-panel: window has no renderer yet");
+            }
+        } else {
+            eprintln!("openusage-panel: dump produced an empty frame");
+        }
+    }
+    if let Some(app) = ctx.window.application() {
+        app.quit();
     }
 }
 
@@ -182,8 +217,16 @@ fn install_dismiss(ctx: &Rc<Ctx>) {
     let keys = gtk4::EventControllerKey::new();
     let ctx_keys = ctx.clone();
     keys.connect_key_pressed(move |_controller, key, _code, _state| {
+        if typing(&ctx_keys.window) {
+            return glib::Propagation::Proceed;
+        }
         if key == gdk::Key::Escape {
-            hide(&ctx_keys);
+            if !crate::session::on_escape(&ctx_keys) {
+                hide(&ctx_keys);
+            }
+            glib::Propagation::Stop
+        } else if key == gdk::Key::Return || key == gdk::Key::KP_Enter {
+            crate::session::on_return(&ctx_keys);
             glib::Propagation::Stop
         } else {
             glib::Propagation::Proceed
@@ -193,7 +236,8 @@ fn install_dismiss(ctx: &Rc<Ctx>) {
 
     let ctx_focus = ctx.clone();
     ctx.window.connect_notify_local(Some("is-active"), move |window, _| {
-        if window.is_visible() && !window.is_active() && ctx_focus.dismiss_armed.get() && !ctx_focus.rebuilding.get() {
+        let on_dashboard = *ctx_focus.screen.borrow() == Screen::Dashboard;
+        if on_dashboard && window.is_visible() && !window.is_active() && ctx_focus.dismiss_armed.get() && !ctx_focus.rebuilding.get() {
             hide(&ctx_focus);
         }
     });
@@ -205,7 +249,7 @@ fn install_dismiss(ctx: &Rc<Ctx>) {
     });
 }
 
-fn rebuild(ctx: &Rc<Ctx>, reset_scroll: bool) {
+pub(crate) fn rebuild(ctx: &Rc<Ctx>, reset_scroll: bool) {
     if ctx.rebuilding.get() {
         return;
     }
@@ -216,9 +260,10 @@ fn rebuild(ctx: &Rc<Ctx>, reset_scroll: bool) {
     ctx.rebuilding.set(true);
     ctx.dismiss_armed.set(false);
     let preserved = if reset_scroll { 0.0 } else { scroll_value(ctx) };
-    let model = model::load(ctx.mode.get());
+    let model = model::load();
+    crate::launch::apply(ctx, &model);
     ctx.refreshed_at.set(model.refreshed_at);
-    let built = view::build(&model, ctx.tab.get(), ctx.refreshing.get(), &actions(ctx), ctx.max_height.get());
+    let built = crate::session::build(ctx, &model);
     *ctx.updated.borrow_mut() = built.updated;
     *ctx.next.borrow_mut() = built.next;
     *ctx.scroll.borrow_mut() = Some(built.scroll.clone());
@@ -235,26 +280,29 @@ fn rebuild(ctx: &Rc<Ctx>, reset_scroll: bool) {
     }
 }
 
-fn actions(ctx: &Rc<Ctx>) -> Actions {
-    let tab_ctx = ctx.clone();
-    let toggle_ctx = ctx.clone();
-    let refresh_ctx = ctx.clone();
-    Actions {
-        on_tab: Rc::new(move |tab| {
-            if tab_ctx.rebuilding.get() || tab_ctx.tab.get() == tab {
-                return;
-            }
-            tab_ctx.tab.set(tab);
-            rebuild(&tab_ctx, true);
-        }),
-        on_toggle_mode: Rc::new(move || {
-            toggle_ctx.mode.set(match toggle_ctx.mode.get() {
-                DisplayMode::Remaining => DisplayMode::Used,
-                DisplayMode::Used => DisplayMode::Remaining,
-            });
-            rebuild(&toggle_ctx, false);
-        }),
-        on_refresh: Rc::new(move || refresh(&refresh_ctx)),
+fn install_commands(ctx: &Rc<Ctx>) {
+    let accounts = gio::SimpleAction::new("accounts", None);
+    let ctx_accounts = ctx.clone();
+    accounts.connect_activate(move |_, _| crate::session::show_accounts(&ctx_accounts));
+    ctx.window.add_action(&accounts);
+
+    let settings = gio::SimpleAction::new("settings", None);
+    let ctx_settings = ctx.clone();
+    settings.connect_activate(move |_, _| crate::session::show_settings(&ctx_settings));
+    ctx.window.add_action(&settings);
+}
+
+fn typing(window: &gtk4::ApplicationWindow) -> bool {
+    gtk4::prelude::GtkWindowExt::focus(window).is_some_and(|widget| widget.is::<gtk4::Entry>())
+}
+
+pub(crate) fn refresh_now(ctx: &Rc<Ctx>) {
+    refresh(ctx);
+}
+
+pub(crate) fn reload_accounts() {
+    if !openusage_core::daemon::signal_running(libc::SIGUSR2) {
+        openusage_core::log::warn("panel", "no refresh daemon is running");
     }
 }
 

@@ -220,3 +220,124 @@ window.openusage.force-dark .command-pill { background: rgba(255, 255, 255, 0.1)
 window.openusage.force-dark .command { color: #f5f5f7; }
 window.openusage.force-dark separator.footer-line,
 window.openusage.force-dark separator.hairline { background: rgba(255, 255, 255, 0.1); }
+
+window.openusage .nav-title,
+window.openusage button.nav-title { font-size: 15px; font-weight: 650; color: #1c1c1e; }
+window.openusage button.link-row { color: #007aff; }
+window.openusage button.nav-back,
+window.openusage button.plain,
+window.openusage button.row-btn,
+window.openusage button.menu-item,
+window.openusage button.list-row,
+window.openusage button.link-row {
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 560;
+  color: inherit;
+}
+window.openusage button.nav-back { padding: 2px 6px; font-size: 22px; font-weight: 500; }
+window.openusage button.plain { padding: 0; border-radius: 6px; }
+window.openusage button.list-row,
+window.openusage button.row-btn,
+window.openusage button.menu-item,
+window.openusage button.link-row { padding: 8px 12px; }
+window.openusage button.list-row:hover,
+window.openusage button.row-btn:hover,
+window.openusage button.menu-item:hover,
+window.openusage button.nav-back:hover,
+window.openusage button.plain:hover { background: rgba(0, 0, 0, 0.05); }
+window.openusage button.primary,
+window.openusage button.destructive-fill,
+window.openusage button.bordered,
+window.openusage button.claim,
+window.openusage button.fix {
+  border: none;
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 620;
+}
+window.openusage button.primary { background: #007aff; color: white; }
+window.openusage button.primary:disabled { opacity: 0.45; }
+window.openusage button.destructive,
+window.openusage button.destructive-fill { color: #d70015; }
+window.openusage button.destructive-fill { background: rgba(215, 0, 21, 0.12); }
+window.openusage button.bordered { background: rgba(0, 0, 0, 0.06); color: inherit; }
+window.openusage button.claim,
+window.openusage button.fix { background: rgba(0, 122, 255, 0.12); color: #007aff; padding: 4px 10px; }
+window.openusage menubutton.options button {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 4px 8px;
+  min-width: 26px;
+  min-height: 26px;
+  font-weight: 700;
+  color: #6e6e73;
+}
+window.openusage entry {
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 6px 10px;
+  min-height: 32px;
+  color: #1c1c1e;
+}
+window.openusage .code-well {
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  padding: 14px 10px;
+}
+window.openusage .code { font-size: 22px; font-weight: 700; letter-spacing: 0.08em; }
+window.openusage .fact { padding: 8px 12px; }
+window.openusage .confirm { padding: 10px 12px; }
+window.openusage .problem-banner { padding: 2px 2px 0; }
+window.openusage .banner { padding: 2px 4px; }
+window.openusage .menu-list { padding: 4px; }
+window.openusage .menu-info { font-size: 12px; }
+window.openusage popover.menu-pop contents,
+window.openusage popover.breakdown contents { background: #f4f4f5; border-radius: 12px; padding: 4px; }
+
+@media (prefers-color-scheme: dark) {
+  window.openusage:not(.force-light) button.list-row:hover,
+  window.openusage:not(.force-light) button.row-btn:hover,
+  window.openusage:not(.force-light) button.menu-item:hover,
+  window.openusage:not(.force-light) button.nav-back:hover,
+  window.openusage:not(.force-light) button.plain:hover { background: rgba(255, 255, 255, 0.08); }
+  window.openusage:not(.force-light) button.primary { background: #0a84ff; }
+  window.openusage:not(.force-light) button.destructive,
+  window.openusage:not(.force-light) button.destructive-fill { color: #ff453a; }
+  window.openusage:not(.force-light) button.destructive-fill { background: rgba(255, 69, 58, 0.18); }
+  window.openusage:not(.force-light) button.bordered,
+  window.openusage:not(.force-light) menubutton.options button { background: rgba(255, 255, 255, 0.1); color: #98989d; }
+  window.openusage:not(.force-light) button.claim,
+  window.openusage:not(.force-light) button.fix { background: rgba(10, 132, 255, 0.2); color: #0a84ff; }
+  window.openusage:not(.force-light) button.nav-title { color: #f5f5f7; }
+  window.openusage:not(.force-light) button.link-row { color: #0a84ff; }
+  window.openusage:not(.force-light) entry,
+  window.openusage:not(.force-light) .code-well { background: #3a3a3c; color: #f5f5f7; border-color: rgba(255, 255, 255, 0.08); }
+  window.openusage:not(.force-light) popover.menu-pop contents,
+  window.openusage:not(.force-light) popover.breakdown contents { background: #2c2c2e; }
+}
+window.openusage.force-dark button.list-row:hover,
+window.openusage.force-dark button.row-btn:hover,
+window.openusage.force-dark button.menu-item:hover,
+window.openusage.force-dark button.nav-back:hover,
+window.openusage.force-dark button.plain:hover { background: rgba(255, 255, 255, 0.08); }
+window.openusage.force-dark button.primary { background: #0a84ff; color: white; }
+window.openusage.force-dark button.destructive,
+window.openusage.force-dark button.destructive-fill { color: #ff453a; }
+window.openusage.force-dark button.destructive-fill { background: rgba(255, 69, 58, 0.18); }
+window.openusage.force-dark button.bordered,
+window.openusage.force-dark menubutton.options button { background: rgba(255, 255, 255, 0.1); color: #98989d; }
+window.openusage.force-dark button.claim,
+window.openusage.force-dark button.fix { background: rgba(10, 132, 255, 0.2); color: #0a84ff; }
+window.openusage.force-dark button.nav-title { color: #f5f5f7; }
+window.openusage.force-dark button.link-row { color: #0a84ff; }
+window.openusage.force-dark entry,
+window.openusage.force-dark .code-well { background: #3a3a3c; color: #f5f5f7; border-color: rgba(255, 255, 255, 0.08); }
+window.openusage.force-dark popover.menu-pop contents,
+window.openusage.force-dark popover.breakdown contents { background: #2c2c2e; }

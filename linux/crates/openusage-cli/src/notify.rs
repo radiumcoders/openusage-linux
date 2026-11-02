@@ -85,7 +85,9 @@ pub fn parse_names(names: &[String]) -> Result<Vec<Milestone>, String> {
             Milestone::ALL
                 .into_iter()
                 .find(|milestone| milestone.name() == name.to_ascii_lowercase())
-                .ok_or_else(|| format!("Unknown alert: {name}. Expected under-10, under-30, running-out."))
+                .ok_or_else(|| {
+                    format!("Unknown alert: {name}. Expected under-10, under-30, running-out.")
+                })
         })
         .collect()
 }
@@ -94,7 +96,11 @@ pub fn list(settings: &Settings) -> Vec<String> {
     Milestone::ALL
         .into_iter()
         .map(|milestone| {
-            let state = if settings.bool(milestone.setting_key()) { "on" } else { "off" };
+            let state = if settings.bool(milestone.setting_key()) {
+                "on"
+            } else {
+                "off"
+            };
             format!("{}\t{state}\t{}", milestone.name(), milestone.subtitle())
         })
         .collect()
@@ -176,27 +182,43 @@ pub struct Notifier {
 
 impl Default for Notifier {
     fn default() -> Self {
-        Self { states: HashMap::new() }
+        Self {
+            states: HashMap::new(),
+        }
     }
 }
 
 impl Notifier {
-    pub fn evaluate(&mut self, accounts: &[Account], snapshots: &std::collections::BTreeMap<String, ProviderSnapshot>, now: DateTime<Utc>) {
+    pub fn evaluate(
+        &mut self,
+        accounts: &[Account],
+        snapshots: &std::collections::BTreeMap<String, ProviderSnapshot>,
+        now: DateTime<Utc>,
+    ) {
         let settings = Settings::open();
         let items = items_from(accounts, snapshots, now);
-        evaluate_items(&mut self.states, &items, |milestone| settings.bool(milestone.setting_key()), |item, milestone| {
-            send(
-                &item.provider_id,
-                milestone,
-                milestone.title(),
-                &format!("{} {}", item.provider_name, item.title),
-                milestone.body(),
-            )
-        });
+        evaluate_items(
+            &mut self.states,
+            &items,
+            |milestone| settings.bool(milestone.setting_key()),
+            |item, milestone| {
+                send(
+                    &item.provider_id,
+                    milestone,
+                    milestone.title(),
+                    &format!("{} {}", item.provider_name, item.title),
+                    milestone.body(),
+                )
+            },
+        );
     }
 }
 
-fn items_from(accounts: &[Account], snapshots: &std::collections::BTreeMap<String, ProviderSnapshot>, now: DateTime<Utc>) -> Vec<Item> {
+fn items_from(
+    accounts: &[Account],
+    snapshots: &std::collections::BTreeMap<String, ProviderSnapshot>,
+    now: DateTime<Utc>,
+) -> Vec<Item> {
     let mut items = Vec::new();
     for account in accounts {
         let snapshot = snapshots.get(&account.card_id());
@@ -262,23 +284,36 @@ fn evaluate_items(
     *states = next_states;
 }
 
-fn transitions(state: MeterState, severity: Severity, resets_at: Option<DateTime<Utc>>, previous: &NoteState) -> Transition {
+fn transitions(
+    state: MeterState,
+    severity: Severity,
+    resets_at: Option<DateTime<Utc>>,
+    previous: &NoteState,
+) -> Transition {
     let mut next = carried_over(previous, resets_at);
     let current = bucket_for(state);
     if state == MeterState::NoData {
-        return Transition { fire: vec![], new_state: next };
+        return Transition {
+            fire: vec![],
+            new_state: next,
+        };
     }
     if !next.primed {
         next.primed = true;
         next.previous_bucket = current;
         next.previous_severity = severity;
         next.fired.clear();
-        return Transition { fire: vec![], new_state: next };
+        return Transition {
+            fire: vec![],
+            new_state: next,
+        };
     }
     let mut fire = Vec::new();
     if current != PaceBucket::Untracked {
         let previous_bucket = next.previous_bucket;
-        if rank(current) >= rank(PaceBucket::RunningOut) && rank(previous_bucket) < rank(PaceBucket::RunningOut) {
+        if rank(current) >= rank(PaceBucket::RunningOut)
+            && rank(previous_bucket) < rank(PaceBucket::RunningOut)
+        {
             queue(&next.fired, &mut fire, Milestone::RunningOut);
         }
         if rank(current) < rank(previous_bucket) && rank(current) <= rank(PaceBucket::Close) {
@@ -299,7 +334,10 @@ fn transitions(state: MeterState, severity: Severity, resets_at: Option<DateTime
         next.fired.remove(&Milestone::UnderThirty);
     }
     next.previous_severity = severity;
-    Transition { fire, new_state: next }
+    Transition {
+        fire,
+        new_state: next,
+    }
 }
 
 fn queue(fired: &HashSet<Milestone>, fire: &mut Vec<Milestone>, milestone: Milestone) {
@@ -320,7 +358,9 @@ fn carried_over(previous: &NoteState, resets_at: Option<DateTime<Utc>>) -> NoteS
 }
 
 fn reset_advanced(resets_at: Option<DateTime<Utc>>, previous: Option<DateTime<Utc>>) -> bool {
-    let Some(resets_at) = resets_at else { return false };
+    let Some(resets_at) = resets_at else {
+        return false;
+    };
     match previous {
         None => true,
         Some(previous) => (resets_at - previous).num_milliseconds() as f64 / 1000.0 > 1.0,
@@ -331,7 +371,12 @@ fn send(provider_id: &str, milestone: Milestone, title: &str, subtitle: &str, bo
     let text = format!("{subtitle}\n{body}");
     let id = format!("{provider_id}.{}", milestone.raw());
     match Command::new("notify-send")
-        .args(["--app-name=OpenUsage", "--icon=dialog-information", title, &text])
+        .args([
+            "--app-name=OpenUsage",
+            "--icon=dialog-information",
+            title,
+            &text,
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -342,11 +387,20 @@ fn send(provider_id: &str, milestone: Milestone, title: &str, subtitle: &str, bo
             true
         }
         Ok(status) => {
-            log::warn("notifications", &format!("skip {id}: notify-send exited {}", status.code().unwrap_or(-1)));
+            log::warn(
+                "notifications",
+                &format!(
+                    "skip {id}: notify-send exited {}",
+                    status.code().unwrap_or(-1)
+                ),
+            );
             false
         }
         Err(error) => {
-            log::warn("notifications", &format!("skip {id}: notify-send could not run: {error}"));
+            log::warn(
+                "notifications",
+                &format!("skip {id}: notify-send could not run: {error}"),
+            );
             false
         }
     }
@@ -367,18 +421,27 @@ mod tests {
         }
     }
 
-    fn step(state: MeterState, fraction: f64, resets: DateTime<Utc>, previous: &NoteState) -> Transition {
+    fn step(
+        state: MeterState,
+        fraction: f64,
+        resets: DateTime<Utc>,
+        previous: &NoteState,
+    ) -> Transition {
         transitions(state, severity_for(fraction), Some(resets), previous)
     }
 
     #[test]
     fn levels_and_pace_fire_once_per_window_and_a_cold_start_is_quiet() {
-        let reset = DateTime::parse_from_rfc3339("2026-07-13T06:00:00Z").unwrap().with_timezone(&Utc);
+        let reset = DateTime::parse_from_rfc3339("2026-07-13T06:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
         let first = step(MeterState::Healthy, 0.9, reset, &NoteState::default());
         assert!(first.fire.is_empty(), "cold start primes");
         let second = step(MeterState::Healthy, 0.25, reset, &first.new_state);
         assert_eq!(second.fire, vec![Milestone::UnderThirty]);
-        assert!(step(MeterState::Healthy, 0.20, reset, &second.new_state).fire.is_empty());
+        assert!(step(MeterState::Healthy, 0.20, reset, &second.new_state)
+            .fire
+            .is_empty());
 
         let primed = step(MeterState::Healthy, 0.9, reset, &NoteState::default()).new_state;
         assert_eq!(
@@ -402,10 +465,15 @@ mod tests {
         let mut sent = Vec::new();
         let mut dropped = item;
         dropped.severity = Severity::Critical;
-        evaluate_items(&mut states, std::slice::from_ref(&dropped), |_| true, |_, milestone| {
-            sent.push(milestone);
-            true
-        });
+        evaluate_items(
+            &mut states,
+            std::slice::from_ref(&dropped),
+            |_| true,
+            |_, milestone| {
+                sent.push(milestone);
+                true
+            },
+        );
         assert_eq!(sent, vec![Milestone::UnderTen]);
     }
 
@@ -413,14 +481,21 @@ mod tests {
     fn alert_names_parse_and_round_trip_through_settings() {
         assert_eq!(parse_names(&[]).unwrap(), Milestone::ALL);
         assert!(parse_names(&["nope".into()]).is_err());
-        let dir = std::env::temp_dir().join(format!("openusage-alerts-{}-{}", std::process::id(), Utc::now().timestamp_micros()));
+        let dir = std::env::temp_dir().join(format!(
+            "openusage-alerts-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_micros()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let settings = Settings::at(dir.join("settings.plist"));
         set(&settings, &[Milestone::UnderTen], true).unwrap();
         let lines = list(&settings);
         assert_eq!(lines[0], "under-10\ton\tA limit drops under 10%");
         assert_eq!(lines[1], "under-30\toff\tA limit drops under 30%");
-        assert_eq!(lines[2], "running-out\toff\tA limit may run out before its reset");
+        assert_eq!(
+            lines[2],
+            "running-out\toff\tA limit may run out before its reset"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }
