@@ -179,6 +179,10 @@ OPENUSAGE_VERBOSE=1 openusage waybar
 A line looks like `OpenUsage notice: [refresh] …`. Notices, warnings, and errors always print.
 `OPENUSAGE_VERBOSE=1` adds info and debug lines. Credentials and response bodies are not logged.
 
+Some compositors leave layer surfaces out of screenshots. To capture the panel for a bug report, run
+`OPENUSAGE_DUMP=/tmp/panel.png openusage-panel`; it saves what it draws as a PNG shortly after opening
+(`OPENUSAGE_TAB=all` or `priority` picks the tab).
+
 A locked keyring makes `secret-tool` fail, and the account reports that OpenUsage could not use the
 keyring. Unlock it and run `openusage refresh`. This reads one item back, without printing it into
 the command line:
