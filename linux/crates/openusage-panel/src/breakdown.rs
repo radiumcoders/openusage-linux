@@ -75,6 +75,7 @@ pub fn show_popover(
     popover.set_parent(anchor);
     popover.set_autohide(true);
     popover.popup();
+    crate::menu::track(&popover);
     popover.connect_closed(|popover| {
         popover.unparent();
     });

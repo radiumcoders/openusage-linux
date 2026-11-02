@@ -98,6 +98,29 @@ fn item(title: &str, act: Act, enabled: bool, split: bool) -> Item {
     }
 }
 
+thread_local! {
+    /// The menu or breakdown popover that is open, if any. On Hyprland a popover on a layer surface
+    /// doesn't take keyboard focus, so the panel's Escape closes it first, as Escape does on the Mac.
+    static OPEN: std::cell::RefCell<Option<gtk4::glib::WeakRef<gtk4::Popover>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Remembers `popover` as the open one until it closes.
+pub fn track(popover: &gtk4::Popover) {
+    OPEN.with(|open| *open.borrow_mut() = Some(popover.downgrade()));
+}
+
+/// Closes the open popover; returns whether there was one.
+pub fn close_open() -> bool {
+    let open = OPEN.with(|open| open.borrow_mut().take()).and_then(|weak| weak.upgrade());
+    match open {
+        Some(popover) if popover.is_visible() => {
+            popover.popdown();
+            true
+        }
+        _ => false,
+    }
+}
+
 pub fn popup(anchor: &gtk4::Widget, x: f64, y: f64, rows: Vec<Item>, act: Rc<dyn Fn(Act)>) {
     let popover = gtk4::Popover::new();
     popover.add_css_class("menu-pop");
@@ -107,6 +130,7 @@ pub fn popup(anchor: &gtk4::Widget, x: f64, y: f64, rows: Vec<Item>, act: Rc<dyn
     popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
     popover.set_autohide(true);
     popover.popup();
+    track(&popover);
     popover.connect_closed(|popover| {
         popover.unparent();
     });

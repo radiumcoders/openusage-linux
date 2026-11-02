@@ -388,3 +388,8 @@ window.openusage.force-dark button.copy-corner {
 }
 window.openusage.force-dark .drop-before { box-shadow: inset 0 3px 0 #0a84ff; }
 window.openusage.force-dark .drop-after { box-shadow: inset 0 -3px 0 #0a84ff; }
+
+/* The click-outside catcher under the panel: fully transparent. */
+window.openusage-backdrop { background: rgba(0, 0, 0, 0.01); }
+/* The row being dragged inside the panel. */
+window.openusage .dragging { opacity: 0.55; }

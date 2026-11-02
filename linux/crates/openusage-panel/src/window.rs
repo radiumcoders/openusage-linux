@@ -24,7 +24,10 @@ pub(crate) struct Ctx {
     pub(crate) refreshed_at: Cell<Option<DateTime<Utc>>>,
     pub(crate) refreshing: Cell<bool>,
     pub(crate) rebuilding: Cell<bool>,
-    pub(crate) dismiss_armed: Cell<bool>,
+    /// A transparent full-screen layer under the panel: a click on it closes the panel, the way a click
+    /// outside closes the Mac popover. (Focus loss can't be used: Hyprland's focus-follows-mouse takes
+    /// focus from the panel without any click.)
+    pub(crate) backdrop: Option<gtk4::Window>,
     pub(crate) dirty: Cell<bool>,
     pub(crate) shown: Cell<bool>,
     pub(crate) updated: RefCell<Option<gtk4::Label>>,
@@ -55,7 +58,10 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
         .or_else(|| app.windows().into_iter().next())
     {
         if toggle && window.is_visible() {
-            window.set_visible(false);
+            match ctx_from(app) {
+                Some(ctx) => hide(&ctx),
+                None => window.set_visible(false),
+            }
             return;
         }
         window.set_visible(true);
@@ -105,6 +111,7 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
         }
     }
     window.set_overflow(gtk4::Overflow::Hidden);
+    let backdrop = gtk4_layer_shell::is_supported().then(|| make_backdrop(placement.output.as_deref()));
 
     let ctx = Rc::new(Ctx {
         window: window.clone(),
@@ -113,7 +120,7 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
         refreshed_at: Cell::new(None),
         refreshing: Cell::new(false),
         rebuilding: Cell::new(false),
-        dismiss_armed: Cell::new(false),
+        backdrop: backdrop.clone(),
         dirty: Cell::new(false),
         shown: Cell::new(false),
         updated: RefCell::new(None),
@@ -186,21 +193,50 @@ fn show(ctx: &Rc<Ctx>) {
 pub(crate) use crate::shot::show_pill;
 
 fn arm(ctx: &Rc<Ctx>) {
-    ctx.dismiss_armed.set(false);
+    if let Some(backdrop) = &ctx.backdrop {
+        backdrop.set_visible(true);
+    }
     let ctx = ctx.clone();
     glib::timeout_add_local(Duration::from_millis(250), move || {
         if ctx.window.is_visible() {
             // Map is asynchronous; ask again once the layer surface exists so Escape reaches it.
             ctx.window.grab_focus();
-            ctx.dismiss_armed.set(true);
         }
         glib::ControlFlow::Break
     });
 }
 
+/// The click-outside catcher: transparent, over every app and the bar, under the panel (Overlay).
+fn make_backdrop(output: Option<&str>) -> gtk4::Window {
+    let backdrop = gtk4::Window::new();
+    backdrop.add_css_class("openusage-backdrop");
+    backdrop.set_decorated(false);
+    backdrop.init_layer_shell();
+    backdrop.set_layer(Layer::Top);
+    backdrop.set_namespace(Some("openusage-backdrop"));
+    backdrop.set_keyboard_mode(KeyboardMode::None);
+    backdrop.set_exclusive_zone(-1);
+    for edge in [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right] {
+        backdrop.set_anchor(edge, true);
+    }
+    if let Some(monitor) = output.and_then(monitor_named) {
+        backdrop.set_monitor(Some(&monitor));
+    }
+    // A window with no child has no input region, and Hyprland passes input through a fully transparent
+    // surface; the filler plus a 1% fill (style.css) make the backdrop catch the click.
+    let filler = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    filler.set_hexpand(true);
+    filler.set_vexpand(true);
+    backdrop.set_child(Some(&filler));
+
+    backdrop
+}
+
 fn hide(ctx: &Rc<Ctx>) {
-    ctx.dismiss_armed.set(false);
     ctx.window.set_visible(false);
+    if let Some(backdrop) = &ctx.backdrop {
+        backdrop.set_visible(false);
+    }
 }
 
 fn install_dismiss(ctx: &Rc<Ctx>) {
@@ -211,6 +247,9 @@ fn install_dismiss(ctx: &Rc<Ctx>) {
             return glib::Propagation::Proceed;
         }
         if key == gdk::Key::Escape {
+            if crate::menu::close_open() {
+                return glib::Propagation::Stop;
+            }
             if !crate::session::on_escape(&ctx_keys) {
                 hide(&ctx_keys);
             }
@@ -229,20 +268,17 @@ fn install_dismiss(ctx: &Rc<Ctx>) {
     });
     ctx.window.add_controller(keys);
 
-    let ctx_focus = ctx.clone();
-    ctx.window
-        .connect_notify_local(Some("is-active"), move |window, _| {
-            let on_dashboard = *ctx_focus.screen.borrow() == Screen::Dashboard;
-            if on_dashboard
-                && window.is_visible()
-                && !window.is_active()
-                && ctx_focus.dismiss_armed.get()
-                && !ctx_focus.rebuilding.get()
-                && !crate::share::rendering()
-            {
-                hide(&ctx_focus);
+    if let Some(backdrop) = &ctx.backdrop {
+        let click = gtk4::GestureClick::new();
+        click.set_button(0);
+        let ctx_outside = ctx.clone();
+        click.connect_pressed(move |_, _, _, _| {
+            if !crate::share::rendering() {
+                hide(&ctx_outside);
             }
         });
+        backdrop.add_controller(click);
+    }
 
     let ctx_close = ctx.clone();
     ctx.window.connect_close_request(move |_| {
@@ -260,7 +296,6 @@ pub(crate) fn rebuild(ctx: &Rc<Ctx>, reset_scroll: bool) {
         return;
     }
     ctx.rebuilding.set(true);
-    ctx.dismiss_armed.set(false);
     let preserved = if reset_scroll { 0.0 } else { scroll_value(ctx) };
     let model = model::load_with(&crate::edit::ensure(ctx));
     crate::launch::apply(ctx, &model);
