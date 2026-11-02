@@ -66,6 +66,7 @@ final class LinuxSession {
         hubs = CLIProxyHubSync(accounts: accounts, client: CLIProxyHubClient(http: http, gate: hubGate))
     }
 
+    @discardableResult
     func refresh(force: Bool) async -> [(provider: Provider, outcome: WidgetDataStore.RefreshOutcome)] {
         let ordered = layout.orderedProviders()
         let outcomes = await data.refresh(providerIDs: ordered.map(\.id), force: force)

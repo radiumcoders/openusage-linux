@@ -53,7 +53,7 @@ final class WaybarPIDLock: @unchecked Sendable {
 }
 
 enum WaybarDaemon {
-    /// Tells a running daemon to reload. A pid file with nobody holding its lock is stale.
+    /// Tells a running daemon to reload its accounts (SIGUSR2). A pid file with nobody holding its lock is stale.
     static func notifyRunning() {
         let url = OpenUsagePaths.waybarPID
         let fd = open(url.path, O_RDWR)
@@ -65,7 +65,7 @@ enum WaybarDaemon {
         }
         guard let text = try? String(contentsOf: url, encoding: .utf8),
               let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return }
-        _ = kill(pid, SIGUSR1)
+        _ = kill(pid, SIGUSR2)
     }
 
     @MainActor
@@ -83,17 +83,25 @@ enum WaybarDaemon {
         defer { lock.release() }
 
         let control = DaemonControl()
-        let reloadSource = LinuxSignals.install(SIGUSR1) { @Sendable in control.requestReload() }
+        // SIGUSR1 is the user's refresh (a click on the module), which skips the cache like the Mac
+        // app's Command-R. SIGUSR2 comes from `add`, `remove`, and `rename`: reload the accounts and
+        // fetch only what isn't fresh, so a new account is read without re-reading the others.
+        let refreshSource = LinuxSignals.install(SIGUSR1) { @Sendable in control.requestReload(force: true) }
+        let reloadSource = LinuxSignals.install(SIGUSR2) { @Sendable in control.requestReload(force: false) }
         let interrupt = LinuxSignals.install(SIGINT) { @Sendable in control.requestStop() }
         let terminate = LinuxSignals.install(SIGTERM) { @Sendable in control.requestStop() }
         defer {
+            refreshSource.cancel()
             reloadSource.cancel()
             interrupt.cancel()
             terminate.cancel()
         }
 
         let quotas = QuotaNotificationEvaluator()
-        await session.refresh(force: true)
+        // Waybar restarts this on every config reload, so launch refreshes like the Mac app does: an
+        // account read within the last interval keeps its cached reading.
+        await session.hubs.syncDue()
+        await session.refresh(force: false)
         await session.evaluateQuotas(quotas)
         emit(session.waybarLine(icon: icon))
 
@@ -103,9 +111,9 @@ enum WaybarDaemon {
         var hourlyDone = false
 
         while !control.isStopped {
-            if control.takeReload() || session.accountsChangedOnDisk() {
+            if let force = control.takeReload() ?? (session.accountsChangedOnDisk() ? false : nil) {
                 session.reloadFromDisk()
-                await session.refresh(force: true)
+                await session.refresh(force: force)
                 await session.evaluateQuotas(quotas)
                 emit(session.waybarLine(icon: icon))
                 let started = ContinuousClock.now
@@ -153,7 +161,8 @@ enum WaybarDaemon {
 
 private final class DaemonControl: @unchecked Sendable {
     private let mutex = NSLock()
-    private var reload = false
+    /// A pending reload, and whether it skips the cache.
+    private var reload: Bool?
     private var stop = false
     private var sleeper: Task<Void, Never>?
 
@@ -166,12 +175,12 @@ private final class DaemonControl: @unchecked Sendable {
     var reloadPending: Bool {
         mutex.lock()
         defer { mutex.unlock() }
-        return reload
+        return reload != nil
     }
 
-    func requestReload() {
+    func requestReload(force: Bool) {
         mutex.lock()
-        reload = true
+        reload = (reload ?? false) || force
         let pending = sleeper
         mutex.unlock()
         pending?.cancel()
@@ -185,11 +194,11 @@ private final class DaemonControl: @unchecked Sendable {
         pending?.cancel()
     }
 
-    func takeReload() -> Bool {
+    func takeReload() -> Bool? {
         mutex.lock()
         defer { mutex.unlock() }
         let value = reload
-        reload = false
+        reload = nil
         return value
     }
 
@@ -205,7 +214,7 @@ private final class DaemonControl: @unchecked Sendable {
     private func beginSleep(_ task: Task<Void, Never>) -> Bool {
         mutex.lock()
         sleeper = task
-        let already = reload || stop
+        let already = reload != nil || stop
         mutex.unlock()
         return already
     }

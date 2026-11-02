@@ -57,7 +57,7 @@ enum OpenUsagePaths {
     }
 }
 
-final class FileBackedUserDefaults: UserDefaults, @unchecked Sendable {
+final class FileBackedUserDefaults: UserDefaults {
     private let settings: PlistFile
     private let snapshots: PlistFile
 
