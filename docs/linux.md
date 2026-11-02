@@ -105,7 +105,7 @@ running low, the module shows only an icon, as the Mac menu bar shows only the a
 | Field | Meaning |
 | --- | --- |
 | `text` | The same strip as the Mac menu bar: the limits closest to running out, or the icon when none is. Hidden metrics are left out. |
-| `tooltip` | Pango markup of every account, without hidden metrics. |
+| `tooltip` | Every account, one plain line per metric (`Session: 75% left · resets in 38m`), without hidden metrics. |
 | `class` | `normal`, `warning`, or `critical`, plus `error` or `stale` when that is the state. No accounts is `empty`. |
 | `percentage` | The fullest limit, as a percent used. |
 | `alt` | The class names, for `{alt}`. |
@@ -114,7 +114,7 @@ running low, the module shows only an icon, as the Mac menu bar shows only the a
 
 Omarchy's own bar has no Waybar, but it loads custom QML modules.
 [contrib/omarchy/openusage.qml](../contrib/omarchy/openusage.qml) runs `openusage waybar` and shows the
-same text, colors, and tooltip. Left click opens the panel; right click refreshes. Copy it to
+same text and colors; like the Mac status item it has no hover tooltip. Left click opens the panel; right click refreshes. Copy it to
 `~/.config/omarchy/bar/modules/openusage.qml`, then add `{ "id": "openusage", "type": "qml" }` to a
 section of `bar.layout` in `~/.config/omarchy/shell.json`. The bar reloads on save.
 

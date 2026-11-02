@@ -25,7 +25,6 @@ use crate::text;
 
 /// nf-md-speedometer. Waybar's usual Nerd Font has it; `--icon` replaces it.
 pub const DEFAULT_ICON: &str = "\u{F04C5}";
-const BAR_WIDTH: usize = 8;
 
 static WAKE_FD: AtomicI32 = AtomicI32::new(-1);
 static RELOAD: AtomicU8 = AtomicU8::new(0);
@@ -307,28 +306,20 @@ fn account_markup(account: &DashboardAccount, absolute: bool, now: DateTime<Utc>
     lines.join("\n")
 }
 
+/// One plain line per metric, in the Mac row's wording: "Session: 75% left · resets in 39m".
+/// No drawn bars: block characters render unevenly in bar fonts.
 fn metric_markup(data: &WidgetData, absolute: bool, now: DateTime<Utc>) -> String {
-    let mut parts = vec![escape(&data.title)];
-    if data.has_data {
-        if let Some(limit) = data.limit {
-            if limit > 0.0 {
-                parts.push(bar(data.fraction()));
-            }
-        }
-    }
-    // The Mac row's wording: "63% left", "$12 left", "$49.85 · 35.8M tokens".
     let amount = if data.has_data && data.is_bounded() {
         data.amount_text()
     } else {
         data.unbounded_figures().join(" · ")
     };
-    parts.push(escape(&amount));
-    if let Some(reset) = reset_label(data, absolute, now) {
-        if !reset.is_empty() {
-            parts.push(escape(&reset));
-        }
+    let mut line = format!("{}: {}", escape(&data.title), escape(&amount));
+    if let Some(reset) = reset_label(data, absolute, now).filter(|reset| !reset.is_empty()) {
+        let reset = if absolute || reset == IMMINENT { format!("resets {reset}") } else { format!("resets in {reset}") };
+        line.push_str(&format!(" · {}", escape(&reset)));
     }
-    parts.join("  ")
+    line
 }
 
 fn reset_label(data: &WidgetData, absolute: bool, now: DateTime<Utc>) -> Option<String> {
@@ -343,12 +334,6 @@ fn reset_label(data: &WidgetData, absolute: bool, now: DateTime<Utc>) -> Option<
     } else {
         Some(openusage_core::widget::compact_clock(resets_at))
     }
-}
-
-fn bar(fraction: f64) -> String {
-    let filled = ((fraction.clamp(0.0, 1.0) * BAR_WIDTH as f64).round() as isize)
-        .clamp(0, BAR_WIDTH as isize) as usize;
-    format!("{}{}", "█".repeat(filled), "░".repeat(BAR_WIDTH - filled))
 }
 
 fn used_percent(used: f64, limit: f64) -> i64 {
@@ -558,10 +543,7 @@ mod tests {
         assert_eq!(quiet["text"], "ICON");
         assert_eq!(quiet["class"], serde_json::json!(["normal"]));
         assert_eq!(quiet["percentage"], 10);
-        assert!(
-            quiet["tooltip"].as_str().unwrap().contains("████████")
-                || quiet["tooltip"].as_str().unwrap().contains('█')
-        );
+        assert!(!quiet["tooltip"].as_str().unwrap().contains('█'), "no drawn bars");
         assert!(
             quiet["tooltip"].as_str().unwrap().contains("90% left"),
             "reads like the Mac row: {}",
@@ -603,7 +585,7 @@ mod tests {
         let tooltip = value["tooltip"].as_str().unwrap();
         assert!(tooltip.contains("Claude · A&amp;B &lt;c&gt;"), "{tooltip}");
         assert!(tooltip.contains("a &lt;b&gt; &amp; c"), "{tooltip}");
-        assert!(tooltip.contains('░'), "{tooltip}");
+        assert!(tooltip.contains("Weekly: 5% left"), "{tooltip}");
     }
 
     #[test]
