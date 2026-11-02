@@ -393,3 +393,5 @@ window.openusage.force-dark .drop-after { box-shadow: inset 0 -3px 0 #0a84ff; }
 window.openusage-backdrop { background: rgba(0, 0, 0, 0.01); }
 /* The row being dragged inside the panel. */
 window.openusage .dragging { opacity: 0.55; }
+/* The breakdown in a copied image sits in a card, so it needs the card's inner padding. */
+window.openusage .share-sheet .breakdown-card { padding: 12px 14px; }

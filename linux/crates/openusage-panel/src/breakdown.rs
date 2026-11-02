@@ -63,22 +63,29 @@ pub fn with_copy(
     overlay.upcast()
 }
 
+/// Opens the breakdown. `keep` is the Mac's click: a popover that stays until a click outside or Escape,
+/// with the Copy button. Without `keep` it is the hover preview: it takes no input grab and closes when
+/// the pointer leaves the figure (a grabbing popup would swallow the click that follows the hover).
 pub fn show_popover(
     anchor: &gtk4::Widget,
     title: &str,
     breakdown: &UsageBreakdown,
     on_copy: Rc<dyn Fn() -> bool>,
-) {
+    keep: bool,
+) -> gtk4::Popover {
     let popover = gtk4::Popover::new();
     popover.add_css_class("breakdown");
-    popover.set_child(Some(&with_copy(card(title, breakdown), breakdown, on_copy)));
+    let body = if keep { with_copy(card(title, breakdown), breakdown, on_copy) } else { card(title, breakdown).upcast() };
+    popover.set_child(Some(&body));
     popover.set_parent(anchor);
-    popover.set_autohide(true);
+    popover.set_autohide(keep);
+    popover.set_can_target(keep);
     popover.popup();
     crate::menu::track(&popover);
     popover.connect_closed(|popover| {
         popover.unparent();
     });
+    popover
 }
 
 fn copy_button(on_copy: Rc<dyn Fn() -> bool>) -> gtk4::Button {

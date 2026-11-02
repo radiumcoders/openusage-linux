@@ -205,26 +205,42 @@ fn value_row(
         button.set_child(Some(&figures));
         let copied = toggles.copied.clone();
         let title_owned = title.to_string();
-        let open: Rc<dyn Fn(&gtk4::Widget, UsageBreakdown)> = Rc::new(move |anchor, breakdown| {
-            let copied = copied.clone();
-            let title_for_button = title_owned.clone();
-            let shot = breakdown.clone();
-            crate::breakdown::show_popover(
-                anchor,
-                &title_owned,
-                &breakdown,
-                Rc::new(move || copied(title_for_button.clone(), shot.clone())),
-            );
-        });
+        let preview: Rc<std::cell::RefCell<Option<gtk4::Popover>>> = Rc::default();
+        let open: Rc<dyn Fn(&gtk4::Widget, UsageBreakdown, bool) -> gtk4::Popover> =
+            Rc::new(move |anchor, breakdown, keep| {
+                let copied = copied.clone();
+                let title_for_button = title_owned.clone();
+                let shot = breakdown.clone();
+                crate::breakdown::show_popover(
+                    anchor,
+                    &title_owned,
+                    &breakdown,
+                    Rc::new(move || copied(title_for_button.clone(), shot.clone())),
+                    keep,
+                )
+            });
+        // Click keeps the details open (with Copy); hover previews them until the pointer leaves.
         let click_open = open.clone();
         let click_breakdown = breakdown.clone();
+        let click_preview = preview.clone();
         button.connect_clicked(move |button| {
-            click_open(button.upcast_ref(), click_breakdown.clone())
+            if let Some(shown) = click_preview.borrow_mut().take() {
+                shown.popdown();
+            }
+            click_open(button.upcast_ref(), click_breakdown.clone(), true);
         });
         let motion = gtk4::EventControllerMotion::new();
+        let enter_preview = preview.clone();
         motion.connect_enter(move |motion, _, _| {
             if let Some(widget) = motion.widget() {
-                open(&widget, breakdown.clone());
+                if let Some(old) = enter_preview.replace(Some(open(&widget, breakdown.clone(), false))) {
+                    old.popdown();
+                }
+            }
+        });
+        motion.connect_leave(move |_| {
+            if let Some(shown) = preview.borrow_mut().take() {
+                shown.popdown();
             }
         });
         button.add_controller(motion);
