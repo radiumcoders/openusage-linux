@@ -1,0 +1,15 @@
+[package]
+name = "openusage-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "openusage"
+path = "src/main.rs"
+
+[dependencies]
+openusage-core.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+libc.workspace = true
