@@ -1,7 +1,4 @@
-import Foundation
-#if canImport(SwiftUI)
 import SwiftUI
-#endif
 import Observation
 
 @MainActor

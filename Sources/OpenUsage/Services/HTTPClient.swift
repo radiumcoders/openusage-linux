@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 struct HTTPRequest: Sendable {
     var method: String
@@ -51,11 +48,7 @@ struct URLSessionHTTPClient: HTTPClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        #if canImport(FoundationNetworking)
-        proxy?.applyToEnvironment()
-        #else
         configuration.proxyConfigurations = proxy.map { [$0.proxyConfiguration] } ?? []
-        #endif
         return configuration
     }
 

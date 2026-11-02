@@ -95,8 +95,7 @@ cargo test --manifest-path linux/Cargo.toml
 script/install_linux.sh
 ```
 
-`swift build` on Linux still needs `--disable-automatic-resolution`, or SwiftPM deletes `Package.resolved`
-and drops the Mac app's pins. Never commit a deleted `Package.resolved`.
+Linux-only code lives in `linux/`; the Swift package is the Mac app only.
 
 ## Pull Requests
 

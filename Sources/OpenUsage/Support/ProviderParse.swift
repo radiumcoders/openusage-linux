@@ -16,12 +16,7 @@ enum ProviderParse {
     /// Foundation type check is required to keep `true`/`false` from becoming `1`/`0`.
     static func number(_ value: Any?) -> Double? {
         if let number = value as? NSNumber {
-            #if canImport(Darwin)
             guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-            #else
-            // swift-corelibs-foundation bridges JSON booleans to an NSNumber whose type code is `c`.
-            guard String(cString: number.objCType) != "c" else { return nil }
-            #endif
             let doubleValue = number.doubleValue
             return doubleValue.isFinite ? doubleValue : nil
         }
