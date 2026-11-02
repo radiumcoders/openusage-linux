@@ -12,6 +12,7 @@ const WEEK_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 pub fn map(balance: &[u8], account: Option<&Value>) -> Result<ProviderUsage, ProviderError> {
     Ok(ProviderUsage {
+        breakdowns: Default::default(),
         plan: account.and_then(plan),
         lines: balance_lines(balance)?,
         notice: None,

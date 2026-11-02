@@ -65,6 +65,7 @@ pub(crate) fn map_body(body: &Map<String, Value>) -> Result<ProviderUsage, Provi
     if lines.is_empty() {
         if body.get("token_based_billing").and_then(loose_bool) == Some(true) {
             return Ok(ProviderUsage {
+                breakdowns: Default::default(),
                 plan,
                 lines: personal_credits(premium),
                 notice: None,
@@ -75,6 +76,7 @@ pub(crate) fn map_body(body: &Map<String, Value>) -> Result<ProviderUsage, Provi
         ));
     }
     Ok(ProviderUsage {
+        breakdowns: Default::default(),
         plan,
         lines,
         notice: None,

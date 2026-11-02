@@ -64,6 +64,7 @@ pub(crate) fn map(
         .and_then(|summary| summary.get("membershipType"))
         .and_then(Value::as_str);
     Ok(ProviderUsage {
+        breakdowns: Default::default(),
         plan: resolved_plan_label(plan_name, membership),
         lines,
         notice: None,

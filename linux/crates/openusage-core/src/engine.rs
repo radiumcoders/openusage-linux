@@ -392,6 +392,7 @@ impl Engine {
                     display_name: done.kind.display_name().to_string(),
                     plan: usage.plan,
                     lines: usage.lines,
+                    breakdowns: usage.breakdowns,
                     notice: usage.notice,
                     refreshed_at: now,
                 };

@@ -39,6 +39,7 @@ impl OpenCodeProvider {
         }
         ProviderError::require_success(&response, ProviderKind::OpenCode)?;
         Ok(ProviderUsage {
+            breakdowns: Default::default(),
             plan: Some(mapper::PLAN.into()),
             lines: mapper::meter_lines(&response, ctx.now)?,
             notice: None,

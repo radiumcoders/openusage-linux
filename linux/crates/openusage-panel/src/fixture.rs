@@ -39,6 +39,7 @@ pub fn write(root: &Path) {
     for account in settings.accounts() {
         let snapshot = match account.kind {
             ProviderKind::Claude => ProviderSnapshot {
+                breakdowns: Default::default(),
                 provider_id: account.card_id(),
                 display_name: "Claude".into(),
                 plan: Some("Team 5x".into()),
@@ -52,6 +53,7 @@ pub fn write(root: &Path) {
                 refreshed_at: now,
             },
             ProviderKind::Cursor if account.label == "Work" => ProviderSnapshot {
+                breakdowns: Default::default(),
                 provider_id: account.card_id(),
                 display_name: "Cursor".into(),
                 plan: Some("Pro".into()),
@@ -77,6 +79,7 @@ pub fn write(root: &Path) {
                 refreshed_at: now,
             },
             ProviderKind::Cursor => ProviderSnapshot {
+                breakdowns: Default::default(),
                 provider_id: account.card_id(),
                 display_name: "Cursor".into(),
                 plan: None,
@@ -85,6 +88,7 @@ pub fn write(root: &Path) {
                 refreshed_at: now,
             },
             ProviderKind::Codex => ProviderSnapshot {
+                breakdowns: Default::default(),
                 provider_id: account.card_id(),
                 display_name: "ChatGPT".into(),
                 plan: Some("Plus".into()),

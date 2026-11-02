@@ -164,6 +164,7 @@ mod tests {
         let fetched = stamp("2026-07-13T01:39:30.000Z");
         let generated = stamp("2026-07-13T01:40:00.000Z");
         let snapshot = ProviderSnapshot {
+            breakdowns: Default::default(),
             provider_id: account.card_id(),
             display_name: "ChatGPT".into(),
             plan: Some("Pro 200".into()),
@@ -228,6 +229,7 @@ mod tests {
     fn a_count_progress_keeps_its_suffix_as_the_unit() {
         let account = Account::new(ProviderKind::Cursor, "Cursor", None);
         let snapshot = ProviderSnapshot {
+            breakdowns: Default::default(),
             provider_id: account.card_id(),
             display_name: "Cursor".into(),
             plan: None,

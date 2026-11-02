@@ -17,6 +17,7 @@ pub fn map(
     subscription: Option<&Value>,
 ) -> Result<crate::metric::ProviderUsage, ProviderError> {
     Ok(crate::metric::ProviderUsage {
+        breakdowns: Default::default(),
         plan: subscription.and_then(plan_name),
         lines: map_quota(quota_body)?,
         notice: None,

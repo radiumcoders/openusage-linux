@@ -54,6 +54,7 @@ fn at(text: &str) -> DateTime<Utc> {
 
 fn sample(refreshed: DateTime<Utc>, notice: Option<&str>) -> ProviderSnapshot {
     ProviderSnapshot {
+        breakdowns: Default::default(),
         provider_id: "claude@1".into(),
         display_name: "Claude".into(),
         plan: None,
@@ -143,7 +144,7 @@ fn a_failed_read_backs_off_until_forced_and_a_success_clears_it() {
             flag.store(true, Ordering::SeqCst);
         }
         state.set("seen", &true);
-        Ok(ProviderUsage { plan: Some("Pro".into()), lines: vec![], notice: None })
+        Ok(ProviderUsage { plan: Some("Pro".into()), lines: vec![], notice: None, breakdowns: Default::default() })
     }));
     let updated = engine.refresh_at(true, now);
     assert_eq!(updated[0].outcome, RefreshOutcome::Refreshed);

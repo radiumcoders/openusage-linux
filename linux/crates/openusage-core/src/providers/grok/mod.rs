@@ -65,6 +65,7 @@ impl Provider for GrokProvider {
         }
         let mapped = mapper::map_credits(&response)?;
         Ok(ProviderUsage {
+            breakdowns: Default::default(),
             plan: read_plan(ctx, &tokens.access_token),
             lines: mapped.lines,
             notice: mapped.notice,

@@ -83,6 +83,7 @@ fn fetch(ctx: &mut FetchContext) -> Result<ProviderUsage, ProviderError> {
         lines.push(mapper::resets_line(&status, ctx.now));
     }
     Ok(ProviderUsage {
+        breakdowns: Default::default(),
         plan: ctx.state.get(PLAN_KEY),
         lines,
         notice: None,

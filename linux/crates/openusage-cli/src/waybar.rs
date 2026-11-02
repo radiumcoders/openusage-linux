@@ -426,6 +426,7 @@ mod tests {
 
     fn weekly(account: &Account, used: f64, refreshed: DateTime<Utc>, notice: Option<&str>) -> ProviderSnapshot {
         ProviderSnapshot {
+            breakdowns: Default::default(),
             provider_id: account.card_id(),
             display_name: "Claude".into(),
             plan: Some("Pro".into()),

@@ -70,6 +70,7 @@ pub(crate) fn map(body: &[u8]) -> Result<ProviderUsage, ProviderError> {
         .filter(|name| !name.is_empty())
         .map(str::to_string);
     Ok(ProviderUsage {
+        breakdowns: Default::default(),
         plan,
         lines,
         notice: None,

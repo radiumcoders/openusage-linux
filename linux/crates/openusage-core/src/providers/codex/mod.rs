@@ -59,6 +59,7 @@ fn fetch(ctx: &mut FetchContext) -> Result<ProviderUsage, ProviderError> {
         &mut mapped.lines,
     );
     Ok(ProviderUsage {
+        breakdowns: Default::default(),
         plan: mapped.plan,
         lines: mapped.lines,
         notice: None,

@@ -41,6 +41,7 @@ pub fn map_credits(response: &HttpResponse) -> Result<ProviderUsage, ProviderErr
             .unwrap_or(false)
     {
         return Ok(ProviderUsage {
+            breakdowns: Default::default(),
             plan: None,
             lines: vec![],
             notice: Some("Grok team accounts have no personal quota.".into()),
@@ -67,6 +68,7 @@ pub fn map_credits(response: &HttpResponse) -> Result<ProviderUsage, ProviderErr
         text,
     });
     Ok(ProviderUsage {
+        breakdowns: Default::default(),
         plan: None,
         lines,
         notice: None,

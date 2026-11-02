@@ -362,6 +362,7 @@ pub(crate) fn map_usage(
     }
 
     Ok(ProviderUsage {
+        breakdowns: Default::default(),
         plan: plan_label(plan_name),
         lines,
         notice: None,

@@ -49,6 +49,7 @@ impl OpenRouterProvider {
         }
         lines.extend(info.lines);
         Ok(ProviderUsage {
+            breakdowns: Default::default(),
             plan: info.plan,
             lines,
             notice: None,

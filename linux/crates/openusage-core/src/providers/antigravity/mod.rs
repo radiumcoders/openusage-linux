@@ -81,6 +81,7 @@ fn usage(ctx: &mut FetchContext<'_>, token: &str) -> Result<ProviderUsage, Quota
         .as_deref()
         .and_then(|body| mapper::parse_plan(body.as_bytes()));
     Ok(ProviderUsage {
+        breakdowns: Default::default(),
         plan,
         lines,
         notice: None,

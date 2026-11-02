@@ -28,6 +28,7 @@ impl Provider for CopilotProvider {
             };
             let lines = client::organization_usage(ctx.http, &organization, &token)?;
             return Ok(ProviderUsage {
+                breakdowns: Default::default(),
                 plan: None,
                 lines,
                 notice: None,

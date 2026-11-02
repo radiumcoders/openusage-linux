@@ -104,6 +104,33 @@ pub struct ProviderUsage {
     pub plan: Option<String>,
     pub lines: Vec<MetricLine>,
     pub notice: Option<String>,
+    /// Per-model detail behind a history row, keyed by descriptor key ("today", "last30", …): the Mac's
+    /// usage-breakdown hover. Providers fill it where their API reports models.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub breakdowns: std::collections::BTreeMap<String, UsageBreakdown>,
+}
+
+/// One model's part of a history row's range (a port of `UsageBreakdown.Model`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BreakdownModel {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dollars: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<f64>,
+    /// A share of credits or turns when neither dollars nor tokens are reported by model (0–1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share: Option<f64>,
+}
+
+/// The models behind one history row, most used first (the Mac shows the top five).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct UsageBreakdown {
+    pub models: Vec<BreakdownModel>,
+}
+
+impl UsageBreakdown {
+    pub const SHOWN_MODELS: usize = 5;
 }
 
 /// The last successful read of one account, as cached and shown.
@@ -115,6 +142,8 @@ pub struct ProviderSnapshot {
     #[serde(default)]
     pub plan: Option<String>,
     pub lines: Vec<MetricLine>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub breakdowns: std::collections::BTreeMap<String, UsageBreakdown>,
     #[serde(default)]
     pub notice: Option<String>,
     pub refreshed_at: DateTime<Utc>,

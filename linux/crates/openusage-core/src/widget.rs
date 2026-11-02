@@ -551,6 +551,7 @@ mod tests {
 
     fn snapshot(lines: Vec<MetricLine>, now: DateTime<Utc>) -> ProviderSnapshot {
         ProviderSnapshot {
+            breakdowns: Default::default(),
             provider_id: "x".into(),
             display_name: "Claude".into(),
             plan: None,
