@@ -127,7 +127,7 @@ pub fn build(snapshot: &Snapshot, hooks: &Hooks, max_height: i32) -> Built {
     ));
     usage.append(&switch_row(
         "Show Total Spend",
-        "Each provider's reported spend, on All Usage",
+        "The spend donut at the top of All Usage",
         snapshot.total_spend,
         hooks.on_total_spend.clone(),
     ));

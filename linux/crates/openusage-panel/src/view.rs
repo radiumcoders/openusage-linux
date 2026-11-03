@@ -43,7 +43,7 @@ pub struct Actions {
     pub on_claim_reset: Rc<dyn Fn()>,
     pub on_claim_cancel: Rc<dyn Fn()>,
     pub on_spend_period: Rc<dyn Fn(openusage_core::spend::SpendPeriod)>,
-    pub on_spend_metric: Rc<dyn Fn(crate::model::CardMetric)>,
+    pub on_spend_share: Rc<dyn Fn()>,
 }
 
 pub struct Chrome {

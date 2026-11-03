@@ -17,6 +17,7 @@ pub mod log;
 pub mod login;
 pub mod metric;
 pub mod paths;
+pub mod pricing;
 pub mod provider;
 pub mod providers;
 pub mod proxy;

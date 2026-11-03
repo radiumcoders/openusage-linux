@@ -1,21 +1,21 @@
-//! The overview card at the top of All Usage. Usage draws one ring per account, filled to its
-//! tightest limit. Cost, Cost/MTok, and Tokens draw a period switch over a donut of each provider's
-//! share, with the total in its hole (a port of 0.7.x's `TotalSpendCard`; the figures come from
-//! `openusage_core::spend`). The menu beside the title switches between them.
+//! The Total Spend card at the top of All Usage, a port of 0.7.x's `TotalSpendCard`: a Today /
+//! Yesterday / 30 Days switch over a donut of each provider's share of the spend, the total in its
+//! hole, and a legend beside it. The figures come from `openusage_core::spend`.
 
 use std::f64::consts::{FRAC_PI_2, TAU};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
 
+use openusage_core::account::Account;
 use openusage_core::kind::ProviderKind;
 use openusage_core::spend::{self, Projection, SpendMetric, SpendPeriod};
 
-use crate::model::{CardMetric, Model};
+use crate::model::Model;
 use crate::prefers_dark;
 use crate::ui;
 
-pub(crate) const RING: i32 = 112;
+const RING: i32 = 112;
 /// The hole's share of the diameter, the golden-ratio donut of the Mac card.
 const HOLE: f64 = 0.618;
 /// Arc length, at the outer rim, between neighboring slices.
@@ -25,186 +25,199 @@ const MIN_SHARE: f64 = 0.025;
 
 pub struct Hooks {
     pub on_period: Rc<dyn Fn(SpendPeriod)>,
-    pub on_metric: Rc<dyn Fn(CardMetric)>,
+    pub on_share: Rc<dyn Fn()>,
 }
 
-/// The card, when Settings shows it and an account on the dashboard has something to draw.
+/// The card, when Settings shows it and an account on the dashboard tracks spend.
 pub fn card(model: &Model, hooks: &Hooks) -> Option<gtk4::Widget> {
     if !model.spend.shown {
         return None;
     }
-    let accounts: Vec<_> = model
+    let accounts = spend_accounts(model);
+    if accounts.is_empty() {
+        return None;
+    }
+    let section = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    section.add_css_class("provider-section");
+    section.append(&header(&accounts, Some(&hooks.on_share)));
+    section.append(&body(model, &accounts, Some(&hooks.on_period)));
+    Some(section.upcast())
+}
+
+/// The card as the share button copies it: no switch handlers, no share button.
+pub fn sheet(model: &Model) -> Option<gtk4::Box> {
+    let accounts = spend_accounts(model);
+    if accounts.is_empty() {
+        return None;
+    }
+    let section = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    section.append(&header(&accounts, None));
+    section.append(&body(model, &accounts, None));
+    Some(section)
+}
+
+/// Visible accounts whose provider reports spend, in dashboard order.
+fn spend_accounts(model: &Model) -> Vec<Account> {
+    model
         .accounts
         .iter()
         .map(|account| account.account.clone())
         .filter(|account| !crate::model::fully_hidden(account, &model.layout))
-        .collect();
-    let rings = crate::usage_ring::rings(model);
-    let tracks_spend = accounts.iter().any(spend::tracks_spend);
-    if rings.is_empty() && !tracks_spend {
-        return None;
+        .filter(spend::tracks_spend)
+        .collect()
+}
+
+/// "Total Spend", the note on what it counts, and the share button where a provider shows its mark.
+fn header(accounts: &[Account], on_share: Option<&Rc<dyn Fn()>>) -> gtk4::Box {
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 5);
+    row.add_css_class("section-header");
+    row.set_margin_start(12);
+    row.set_margin_end(12);
+    row.append(&ui::text("Total Spend", &["provider"]));
+    let info = info_mark();
+    info.set_tooltip_text(Some(&included(accounts)));
+    row.append(&info);
+    let spring = gtk4::Label::new(None);
+    spring.set_hexpand(true);
+    row.append(&spring);
+    if let Some(on_share) = on_share {
+        let button = gtk4::Button::new();
+        button.add_css_class("plain");
+        button.add_css_class("logo-share");
+        button.set_child(Some(&share_mark()));
+        let on_share = on_share.clone();
+        button.connect_clicked(move |_| on_share());
+        row.append(&button);
     }
-    // A saved spend metric with no provider that reports spend falls back to Usage.
-    let metric = match model.spend.metric {
-        CardMetric::Spend(_) if !tracks_spend => CardMetric::Usage,
-        CardMetric::Usage if rings.is_empty() => CardMetric::Spend(SpendMetric::Cost),
-        metric => metric,
+    row
+}
+
+/// "Only includes Claude and Cursor.", naming the providers that feed the ring.
+fn included(accounts: &[Account]) -> String {
+    let mut names: Vec<&str> = Vec::new();
+    for account in accounts {
+        let name = account.kind.display_name();
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    let list = match names.as_slice() {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        [first, second] => format!("{first} and {second}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
     };
+    format!("Only includes {list}.")
+}
 
-    let section = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-    section.add_css_class("provider-section");
-    let choices: Vec<CardMetric> = CardMetric::ALL
-        .into_iter()
-        .filter(|choice| match choice {
-            CardMetric::Usage => !rings.is_empty(),
-            CardMetric::Spend(_) => tracks_spend,
-        })
-        .collect();
-    section.append(&header(metric, choices, &hooks.on_metric));
-
+fn body(
+    model: &Model,
+    accounts: &[Account],
+    on_period: Option<&Rc<dyn Fn(SpendPeriod)>>,
+) -> gtk4::Box {
     let card = ui::card();
     let inner = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
     inner.set_margin_start(14);
     inner.set_margin_end(14);
-    inner.set_margin_top(14);
+    inner.set_margin_top(12);
     inner.set_margin_bottom(14);
-    match metric {
-        CardMetric::Usage => inner.append(&crate::usage_ring::body(&rings)),
-        CardMetric::Spend(spend_metric) => {
-            spend_body(&inner, model, &accounts, spend_metric, &hooks.on_period)
-        }
-    }
-    card.append(&inner);
-    section.append(&card);
-    Some(section.upcast())
-}
-
-fn spend_body(
-    inner: &gtk4::Box,
-    model: &Model,
-    accounts: &[openusage_core::account::Account],
-    metric: SpendMetric,
-    on_period: &Rc<dyn Fn(SpendPeriod)>,
-) {
     let period = model.spend.period;
-    let slices = spend::total(period, accounts, &model.snapshots, &model.layout);
-    let projection = spend::project(&slices, metric);
     let selected = SpendPeriod::ALL
         .iter()
         .position(|candidate| *candidate == period)
         .unwrap_or(0);
     let labels = SpendPeriod::ALL.map(SpendPeriod::short_label);
-    let on_period = on_period.clone();
+    let on_period = on_period.cloned();
     inner.append(&ui::segments(
         &labels,
         selected,
         Rc::new(move |index| {
-            if let Some(period) = SpendPeriod::ALL.get(index) {
+            if let (Some(on_period), Some(period)) = (&on_period, SpendPeriod::ALL.get(index)) {
                 on_period(*period);
             }
         }),
     ));
-    if slices.is_empty() {
-        // No provider reported this period at all.
-        let empty = ui::text(metric.empty_message(), &["secondary", "figure"]);
-        empty.set_margin_top(22);
-        empty.set_margin_bottom(22);
+    let slices = spend::total(period, accounts, &model.snapshots, &model.layout);
+    let projection = spend::project(&slices, SpendMetric::Cost);
+    if projection.slices.is_empty() {
+        // As on the Mac: a quiet line, never a made-up zero ring.
+        let empty = ui::text(SpendMetric::Cost.empty_message(), &["secondary", "figure"]);
+        empty.set_margin_top(24);
+        empty.set_margin_bottom(24);
         inner.append(&empty);
-        return;
-    }
-    // A period the providers reported as zero keeps its legend, over an empty track.
-    let shown = if projection.slices.is_empty() {
-        Projection {
-            metric,
-            slices: slices.iter().map(|slice| (slice.kind, 0.0)).collect(),
-            center: 0.0,
-        }
     } else {
-        projection
-    };
-    let body = gtk4::Box::new(gtk4::Orientation::Horizontal, 18);
-    body.append(&ring(&shown));
-    body.append(&legend(&shown));
-    inner.append(&body);
+        let content = gtk4::Box::new(gtk4::Orientation::Horizontal, 18);
+        content.append(&ring(&projection));
+        content.append(&legend(&projection));
+        inner.append(&content);
+    }
+    card.append(&inner);
+    card
 }
 
-/// The card's title with the metric menu where a provider header shows its mark.
-fn header(
-    metric: CardMetric,
-    choices: Vec<CardMetric>,
-    on_metric: &Rc<dyn Fn(CardMetric)>,
-) -> gtk4::Box {
-    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    row.add_css_class("section-header");
-    row.set_margin_start(12);
-    row.set_margin_end(12);
-    // As on the Mac card, the title is the menu.
-    let title = ui::text(metric.heading(), &["provider"]);
-    if choices.len() < 2 {
-        title.set_hexpand(true);
-        title.set_halign(gtk4::Align::Start);
-        row.append(&title);
-        return row;
-    }
-    let label = gtk4::Box::new(gtk4::Orientation::Horizontal, 5);
-    label.append(&title);
-    let chevron = ui::text("⌄", &["spend-chevron", "secondary"]);
-    chevron.set_valign(gtk4::Align::Center);
-    label.append(&chevron);
-    let button = gtk4::Button::new();
-    button.add_css_class("plain");
-    button.add_css_class("spend-metric");
-    button.set_halign(gtk4::Align::Start);
-    button.set_hexpand(true);
-    button.set_child(Some(&label));
-    let on_metric = on_metric.clone();
-    button.connect_clicked(move |button| metric_menu(button, metric, &choices, &on_metric));
-    row.append(&button);
-    row
+/// The ⓘ beside the title.
+fn info_mark() -> gtk4::DrawingArea {
+    let area = gtk4::DrawingArea::new();
+    area.set_content_width(13);
+    area.set_content_height(13);
+    area.set_valign(gtk4::Align::Center);
+    area.set_margin_top(2);
+    area.set_draw_func(|_area, context, width, height| {
+        let (gray, alpha) = mark_ink();
+        context.set_source_rgba(gray, gray, gray, alpha);
+        let (cx, cy) = (f64::from(width) / 2.0, f64::from(height) / 2.0);
+        let radius = f64::from(width.min(height)) / 2.0 - 0.75;
+        context.set_line_width(1.2);
+        context.arc(cx, cy, radius, 0.0, TAU);
+        let _ = context.stroke();
+        context.arc(cx, cy - radius * 0.45, 0.9, 0.0, TAU);
+        let _ = context.fill();
+        context.set_line_width(1.3);
+        context.move_to(cx, cy - radius * 0.12);
+        context.line_to(cx, cy + radius * 0.55);
+        let _ = context.stroke();
+    });
+    area
 }
 
-fn metric_menu(
-    anchor: &gtk4::Button,
-    current: CardMetric,
-    choices: &[CardMetric],
-    on_metric: &Rc<dyn Fn(CardMetric)>,
-) {
-    let popover = gtk4::Popover::new();
-    popover.add_css_class("menu-pop");
-    popover.set_has_arrow(false);
-    let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    column.add_css_class("menu-list");
-    for metric in choices.iter().copied() {
-        if metric == CardMetric::Spend(SpendMetric::Cost) && choices.contains(&CardMetric::Usage) {
-            let rule = gtk4::Separator::new(gtk4::Orientation::Horizontal);
-            rule.add_css_class("hairline");
-            column.append(&rule);
-        }
-        let title = if metric == current {
-            format!("✓ {}", metric.heading())
-        } else {
-            metric.heading().to_string()
-        };
-        let item = gtk4::Button::new();
-        item.add_css_class("menu-item");
-        let text = ui::text(&title, &[]);
-        text.set_xalign(0.0);
-        text.set_hexpand(true);
-        item.set_child(Some(&text));
-        let on_metric = on_metric.clone();
-        item.connect_clicked(move |_| {
-            crate::menu::close_open();
-            let on_metric = on_metric.clone();
-            gtk4::glib::idle_add_local_once(move || on_metric(metric));
-        });
-        column.append(&item);
+/// The share glyph: a tray with an arrow out of it.
+fn share_mark() -> gtk4::DrawingArea {
+    let area = gtk4::DrawingArea::new();
+    area.set_content_width(16);
+    area.set_content_height(16);
+    area.set_draw_func(|_area, context, width, height| {
+        let ink = if prefers_dark() { 0.96 } else { 0.11 };
+        context.set_source_rgb(ink, ink, ink);
+        let (w, h) = (f64::from(width), f64::from(height));
+        context.set_line_width(1.3);
+        context.set_line_cap(cairo::LineCap::Round);
+        context.set_line_join(cairo::LineJoin::Round);
+        // Tray.
+        context.move_to(w * 0.34, h * 0.42);
+        context.line_to(w * 0.2, h * 0.42);
+        context.line_to(w * 0.2, h * 0.9);
+        context.line_to(w * 0.8, h * 0.9);
+        context.line_to(w * 0.8, h * 0.42);
+        context.line_to(w * 0.66, h * 0.42);
+        let _ = context.stroke();
+        // Arrow.
+        context.move_to(w * 0.5, h * 0.62);
+        context.line_to(w * 0.5, h * 0.08);
+        let _ = context.stroke();
+        context.move_to(w * 0.34, h * 0.24);
+        context.line_to(w * 0.5, h * 0.08);
+        context.line_to(w * 0.66, h * 0.24);
+        let _ = context.stroke();
+    });
+    area
+}
+
+fn mark_ink() -> (f64, f64) {
+    if prefers_dark() {
+        (1.0, 0.55)
+    } else {
+        (0.0, 0.5)
     }
-    popover.set_child(Some(&column));
-    popover.set_parent(anchor);
-    popover.set_autohide(true);
-    popover.connect_closed(|popover| popover.unparent());
-    popover.popup();
-    crate::menu::track(&popover);
 }
 
 fn ring(projection: &Projection) -> gtk4::Overlay {
@@ -218,12 +231,11 @@ fn ring(projection: &Projection) -> gtk4::Overlay {
     });
     let overlay = gtk4::Overlay::new();
     overlay.set_child(Some(&area));
-    let (figure, unit) = spend::ring_center(projection.center, projection.metric);
-    let center = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
+    // One short figure in the hole, as in the 0.7.x card ("$13.4K").
+    let (figure, _) = spend::ring_center(projection.center, projection.metric);
+    let center = ui::text(&figure, &["spend-center", "nums"]);
     center.set_halign(gtk4::Align::Center);
     center.set_valign(gtk4::Align::Center);
-    center.append(&ui::text(&figure, &["spend-center", "nums"]));
-    center.append(&ui::text(unit, &["spend-unit", "tertiary"]));
     overlay.add_overlay(&center);
     overlay
 }

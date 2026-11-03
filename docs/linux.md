@@ -34,17 +34,25 @@ cargo build --release --manifest-path linux/Cargo.toml
 `openusage panel`, or `openusage-panel --toggle`, opens and closes the usage panel. Waybar's left
 click runs that. The panel reads the same accounts, snapshots, and refresh status as the bar.
 
-All Usage opens with an overview card. Its title is a menu:
+All Usage opens with **Total Spend**, as in 0.7.x on the Mac: a Today / Yesterday / 30 Days switch
+over a donut of each provider's share of the spend, summed over its accounts, with the total in the
+middle and each provider's dollars beside it. The ⓘ names the providers it includes, and the share
+button copies the card as an image. A period with no spend says so instead of drawing an empty ring.
+**Show Total Spend** in Settings turns it off. The period is saved under
+`openusage.totalSpend.period`. Hidden history rows are left out.
 
-- **Usage** (the default): one ring per account, filled to that account's tightest limit the way
-  its bar is (used or left, per Settings), with the tightest one in the middle and a legend beside it.
-- **Total Spend**, **Cost/MTok**, and **Tokens**: a Today / Yesterday / 30 Days switch over a donut
-  of each provider's share, summed over its accounts, with the total in the middle. Only providers
-  that report history rows count (ChatGPT, Cursor, Ollama, OpenCode); Claude reports only limits. A
-  period reported as zero shows an empty ring with its $0 amounts.
+The dollars are estimates at API prices, priced with the catalogs 0.7.x bundled (OpenUsage's pricing
+supplement and a LiteLLM snapshot), the same way 0.7.x priced them:
 
-Hidden metrics are left out of both. **Show Total Spend** in Settings turns the card off. The period
-and view are saved under `openusage.totalSpend.period` and `openusage.totalSpend.metric`.
+- **Claude**: Today, Yesterday, and Last 30 Days come from Claude Code's own session logs, every
+  `projects/**/*.jsonl` under `$CLAUDE_CONFIG_DIR` (or `~/.config/claude` and `~/.claude`). Lines are
+  deduplicated by message and request, advisor calls count under their own model, a line's own
+  `costUSD` wins, and a model nothing prices is left out. The logs belong to the Claude account
+  Claude Code is signed in to (`oauthAccount` in its `.claude.json`). Files are read once and then
+  only from where they grew.
+- **Cursor**: each model's tokens from Cursor's usage events, priced the same way. A model the
+  catalogs don't name keeps what Cursor charged.
+- Other providers that report history rows (ChatGPT, Ollama, OpenCode) use the dollars they report.
 
 Scrolled content fades out at the tabs and the footer, as on the Mac.
 
@@ -197,8 +205,9 @@ the entry. `retryAt` is UTC with milliseconds.
 `providerAsked` is true when the provider asked OpenUsage to wait. The panel and the bar use this file
 for the account's error line.
 
-OpenUsage does not read other tools' files, keyrings, or environment variables for credentials. You add
-each account yourself.
+OpenUsage does not read other tools' credentials, keyrings, or auth files. You add each account
+yourself. The one thing it reads from another tool is Claude Code's session logs, for Claude's spend
+(see Panel).
 
 ## Refresh and notifications
 

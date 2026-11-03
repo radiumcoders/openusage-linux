@@ -277,6 +277,10 @@ pub fn descriptors(account: &Account) -> Vec<Descriptor> {
                 },
             );
             b.rate_limit_resets();
+            // Spend and tokens from Claude Code's local logs, as in 0.7.x.
+            b.history("today", "Today");
+            b.history("yesterday", "Yesterday");
+            b.history("last30", "Last 30 Days");
         }
         ProviderKind::Codex => {
             b.percent("session", "Session").export("session", "percent");

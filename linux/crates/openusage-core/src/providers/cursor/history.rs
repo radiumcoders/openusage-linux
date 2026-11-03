@@ -118,28 +118,7 @@ pub(crate) fn append_lines(
         let stored = read
             .days
             .into_iter()
-            .map(|(day, totals)| {
-                (
-                    day.timestamp(),
-                    StoredDay {
-                        spend: totals.spend,
-                        tokens: totals.tokens,
-                        models: totals
-                            .by_model
-                            .iter()
-                            .map(|(name, model)| {
-                                (
-                                    name.clone(),
-                                    StoredModel {
-                                        spend: model.spend,
-                                        tokens: model.tokens,
-                                    },
-                                )
-                            })
-                            .collect(),
-                    },
-                )
-            })
+            .map(|(day, totals)| (day.timestamp(), priced_day(&totals)))
             .collect();
         ledger.record(&stored, &due, &keys);
         if let Some(wait) = read.rate_limited_for {
@@ -169,6 +148,47 @@ pub(crate) fn append_lines(
             }
         }
     }
+}
+
+/// One day at API prices, as 0.7.x showed Cursor's spend: each model's tokens priced through the
+/// bundled catalogs, whatever Cursor charged. A model nothing prices keeps what Cursor charged.
+fn priced_day(day: &Day) -> StoredDay {
+    let pricing = crate::pricing::Pricing::bundled();
+    // Events without a model keep their charge and tokens.
+    let unnamed_spend = day.spend - day.by_model.values().map(|model| model.spend).sum::<f64>();
+    let unnamed_tokens = day.tokens - day.by_model.values().map(|model| model.tokens).sum::<f64>();
+    let mut stored = StoredDay {
+        spend: unnamed_spend.max(0.0),
+        tokens: unnamed_tokens.max(0.0),
+        models: BTreeMap::new(),
+    };
+    for (name, model) in &day.by_model {
+        let tokens = crate::pricing::Tokens {
+            input: model.input_tokens as u64,
+            cache_write_5m: model.cache_write_tokens as u64,
+            cache_write_1h: 0,
+            cache_read: model.cache_read_tokens as u64,
+            output: model.output_tokens as u64,
+            fast: false,
+        };
+        let spend = match pricing.cost_of_totals(name, &tokens) {
+            Some(spend) => spend,
+            None => {
+                log::debug("plugin:cursor", &format!("no price for {name}; using its charge"));
+                model.spend
+            }
+        };
+        stored.spend += spend;
+        stored.tokens += model.tokens;
+        stored.models.insert(
+            name.clone(),
+            StoredModel {
+                spend,
+                tokens: model.tokens,
+            },
+        );
+    }
+    stored
 }
 
 fn history_key(label: &str) -> &'static str {

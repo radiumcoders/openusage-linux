@@ -1127,6 +1127,14 @@ fn history_fetch(
     provider().fetch(&mut ctx).unwrap()
 }
 
+/// Composer 2 is priced from its tokens ($0.00175 a day here); Opus 4.6, which no catalog names
+/// this way, keeps Cursor's $1.25 charge.
+fn assert_figure(found: Option<(f64, f64)>, expected: (f64, f64)) {
+    let (dollars, tokens) = found.expect("row");
+    assert!((dollars - expected.0).abs() < 1e-6, "{dollars} != {}", expected.0);
+    assert_eq!(tokens, expected.1);
+}
+
 fn history_figure(usage: &ProviderUsage, label: &str) -> Option<(f64, f64)> {
     usage
         .lines
@@ -1145,24 +1153,21 @@ fn history_rows_count_on_demand_charges_and_reread_today_and_yesterday() {
     let http = history_http(Arc::new(Mutex::new(None)), None);
     let mut state = ProviderState::default();
     let usage = history_fetch(&account, &vault, &http, &mut state, now);
-    assert_eq!(history_figure(&usage, "Today"), Some((1.25, 3303.0)));
-    assert_eq!(history_figure(&usage, "Yesterday"), Some((1.25, 3303.0)));
-    assert_eq!(
-        history_figure(&usage, "Last 30 Days"),
-        Some((37.5, 99_090.0))
-    );
+    assert_figure(history_figure(&usage, "Today"), (1.25175, 3303.0));
+    assert_figure(history_figure(&usage, "Yesterday"), (1.25175, 3303.0));
+    assert_figure(history_figure(&usage, "Last 30 Days"), (37.5525, 99_090.0));
     let today = &usage.breakdowns["today"].models;
     assert_eq!(today[0].name, "claude-4.6-opus");
     assert_eq!(today[0].dollars, Some(1.25));
     assert_eq!(today[0].tokens, Some(203.0));
     assert_eq!(today[1].name, "composer-2");
-    assert_eq!(today[1].dollars, Some(0.0));
+    assert!((today[1].dollars.unwrap() - 0.00175).abs() < 1e-9);
     assert_eq!(today[1].tokens, Some(3_100.0));
     let month = &usage.breakdowns["last30"].models;
     assert_eq!(month[0].name, "claude-4.6-opus");
     assert_eq!(month[0].dollars, Some(37.5));
     assert_eq!(month[0].tokens, Some(6_090.0));
-    assert_eq!(month[1].dollars, Some(0.0));
+    assert!((month[1].dollars.unwrap() - 0.0525).abs() < 1e-9);
     assert_eq!(month[1].tokens, Some(93_000.0));
     let first = http
         .requests
@@ -1181,10 +1186,7 @@ fn history_rows_count_on_demand_charges_and_reread_today_and_yesterday() {
         .filter(|request| request.url.contains("get-filtered-usage-events"))
         .count();
     assert_eq!(second - first, 2);
-    assert_eq!(
-        history_figure(&usage, "Last 30 Days"),
-        Some((37.5, 99_090.0))
-    );
+    assert_figure(history_figure(&usage, "Last 30 Days"), (37.5525, 99_090.0));
 }
 
 #[test]
@@ -1203,7 +1205,7 @@ fn a_failed_reread_drops_today_and_yesterday_and_keeps_earlier_days() {
     let usage = history_fetch(&account, &vault, &http, &mut state, now);
     assert!(history_figure(&usage, "Today").is_none());
     assert!(history_figure(&usage, "Yesterday").is_none());
-    assert_eq!(history_figure(&usage, "Last 30 Days").unwrap().0, 35.0);
+    assert!((history_figure(&usage, "Last 30 Days").unwrap().0 - 35.049).abs() < 1e-6);
 }
 
 #[test]
@@ -1255,11 +1257,8 @@ fn a_rate_limit_stops_the_sweep_and_waits() {
             .filter(|request| request.url.contains("get-filtered-usage-events"))
             .count();
         assert_eq!(after - first, 30);
-        assert_eq!(history_figure(&usage, "Today"), Some((1.25, 3303.0)));
-        assert_eq!(
-            history_figure(&usage, "Last 30 Days"),
-            Some((37.5, 99_090.0))
-        );
+        assert_figure(history_figure(&usage, "Today"), (1.25175, 3303.0));
+        assert_figure(history_figure(&usage, "Last 30 Days"), (37.5525, 99_090.0));
     }
 }
 

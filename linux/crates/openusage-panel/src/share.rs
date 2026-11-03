@@ -104,6 +104,18 @@ pub fn copy_accounts(ctx: &Rc<Ctx>, ids: &[String]) {
     publish(ctx, sheet.upcast_ref(), &stem_for(&model, ids));
 }
 
+/// The Total Spend card, as on the Mac's share button.
+pub fn copy_spend(ctx: &Rc<Ctx>) {
+    let model = model::load_with(&edit::ensure(ctx));
+    let Some(card) = crate::spend::sheet(&model) else {
+        window::show_pill(ctx, confirmation(false, None));
+        return;
+    };
+    let sheet = sheet();
+    sheet.append(&card);
+    publish(ctx, sheet.upcast_ref(), "Total-Spend");
+}
+
 pub fn copy_breakdown(ctx: &Rc<Ctx>, pop: &Pop) -> bool {
     if pop.breakdown.models.is_empty() {
         return false;

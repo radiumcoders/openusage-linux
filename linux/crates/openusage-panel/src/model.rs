@@ -12,7 +12,7 @@ use openusage_core::layout::{self, LayoutState};
 use openusage_core::metric::ProviderSnapshot;
 use openusage_core::paths;
 use openusage_core::refresh::INTERVAL_SECONDS;
-use openusage_core::spend::{self, SpendMetric, SpendPeriod};
+use openusage_core::spend::{self, SpendPeriod};
 use openusage_core::store::{Settings, SnapshotCache};
 use openusage_core::widget::{self, DisplayMode};
 
@@ -32,49 +32,11 @@ pub struct Model {
     pub spend: SpendChoice,
 }
 
-/// The Total Spend card's switch in Settings and its saved period and metric.
+/// The Total Spend card's switch in Settings and its saved period.
 #[derive(Debug, Clone, Copy)]
 pub struct SpendChoice {
     pub shown: bool,
     pub period: SpendPeriod,
-    pub metric: CardMetric,
-}
-
-/// What the card's ring shows: each account's tightest limit, or a spend figure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CardMetric {
-    Usage,
-    Spend(SpendMetric),
-}
-
-impl CardMetric {
-    pub const ALL: [Self; 4] = [
-        Self::Usage,
-        Self::Spend(SpendMetric::Cost),
-        Self::Spend(SpendMetric::CostPerMtok),
-        Self::Spend(SpendMetric::Tokens),
-    ];
-
-    /// Stored under the 0.7.x metric key; "usage" is Linux's, and 0.7.x reads it as Cost.
-    pub fn raw(self) -> &'static str {
-        match self {
-            Self::Usage => "usage",
-            Self::Spend(metric) => metric.raw(),
-        }
-    }
-
-    pub fn from_raw(raw: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|metric| metric.raw() == raw)
-    }
-
-    /// The card's title, which is also its menu item.
-    pub fn heading(self) -> &'static str {
-        match self {
-            Self::Usage => "Usage",
-            Self::Spend(SpendMetric::Cost) => "Total Spend",
-            Self::Spend(metric) => metric.title(),
-        }
-    }
 }
 
 impl SpendChoice {
@@ -88,10 +50,6 @@ impl SpendChoice {
                 .string(spend::PERIOD_KEY)
                 .and_then(|raw| SpendPeriod::from_raw(&raw))
                 .unwrap_or(SpendPeriod::Today),
-            metric: settings
-                .string(spend::METRIC_KEY)
-                .and_then(|raw| CardMetric::from_raw(&raw))
-                .unwrap_or(CardMetric::Usage),
         }
     }
 }
@@ -318,23 +276,5 @@ mod tests {
         assert!(fully_hidden(&account, &layout));
         assert!(every_metric_hidden(&[account], &layout));
         assert!(!every_metric_hidden(&[], &layout));
-    }
-}
-
-#[cfg(test)]
-mod card_metric_tests {
-    use super::*;
-
-    #[test]
-    fn the_card_view_round_trips_and_spend_keeps_the_0_7_raw_values() {
-        for metric in CardMetric::ALL {
-            assert_eq!(CardMetric::from_raw(metric.raw()), Some(metric));
-        }
-        assert_eq!(
-            CardMetric::from_raw("apiSpend"),
-            Some(CardMetric::Spend(SpendMetric::Cost))
-        );
-        assert_eq!(CardMetric::Spend(SpendMetric::Cost).heading(), "Total Spend");
-        assert_eq!(CardMetric::from_raw("bogus"), None);
     }
 }

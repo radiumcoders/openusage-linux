@@ -23,7 +23,6 @@ mod settings_page;
 mod share;
 mod shot;
 mod spend;
-mod usage_ring;
 mod state;
 mod ui;
 mod view;

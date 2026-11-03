@@ -97,6 +97,11 @@ script/install_linux.sh
 
 Linux-only code lives in `linux/`; the Swift package is the Mac app only.
 
+The Linux edition keeps 0.7.x's Total Spend card, so two Architecture rules have a Linux-only
+exception: it reads Claude Code's session logs (`projects/**/*.jsonl`) for Claude's spend, and it
+prices Claude's and Cursor's tokens with the bundled catalogs in `linux/crates/openusage-core/pricing/`
+(`pricing.rs`). It still never reads another tool's credentials. See `docs/linux.md`.
+
 ## Pull Requests
 
 Every PR description must follow this structure so reviewers can skim it quickly:

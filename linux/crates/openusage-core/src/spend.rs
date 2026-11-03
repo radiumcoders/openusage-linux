@@ -332,7 +332,7 @@ mod tests {
         let slices = total(SpendPeriod::Today, &accounts, &snapshots, &layout);
         assert_eq!(slices[0].dollars, 10.0);
         assert!(total(SpendPeriod::Yesterday, &accounts, &snapshots, &layout).is_empty());
-        assert!(!tracks_spend(&claude));
+        assert!(tracks_spend(&claude));
         assert!(tracks_spend(&codex));
     }
 

@@ -89,12 +89,9 @@ pub(crate) fn view(ctx: &Rc<Ctx>, model: &Model, notice: Option<String>) -> view
                 window::rebuild(&ctx, false);
             })
         },
-        on_spend_metric: {
+        on_spend_share: {
             let ctx = ctx.clone();
-            Rc::new(move |metric| {
-                crate::model::save_spend_setting(openusage_core::spend::METRIC_KEY, metric.raw());
-                window::rebuild(&ctx, false);
-            })
+            Rc::new(move || crate::share::copy_spend(&ctx))
         },
     };
     let chrome = Chrome {

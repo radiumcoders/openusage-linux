@@ -52,7 +52,7 @@ pub fn all_usage(model: &Model, actions: &Actions, chrome: &Chrome) -> gtk4::Wid
     );
     let hooks = crate::spend::Hooks {
         on_period: actions.on_spend_period.clone(),
-        on_metric: actions.on_spend_metric.clone(),
+        on_share: actions.on_spend_share.clone(),
     };
     let Some(spend) = crate::spend::card(model, &hooks) else {
         return list.upcast();

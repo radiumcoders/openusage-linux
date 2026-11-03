@@ -6,6 +6,7 @@
 #[path = "login.rs"]
 mod auth;
 pub(crate) mod client;
+pub mod local;
 pub(crate) mod mapper;
 
 #[cfg(test)]
@@ -82,12 +83,47 @@ fn fetch(ctx: &mut FetchContext) -> Result<ProviderUsage, ProviderError> {
     {
         lines.push(mapper::resets_line(&status, ctx.now));
     }
+    let (history, breakdowns) = local_history(ctx, &tokens);
+    lines.extend(history);
     Ok(ProviderUsage {
-        breakdowns: Default::default(),
+        breakdowns,
         plan: ctx.state.get(PLAN_KEY),
         lines,
         notice: None,
     })
+}
+
+/// Today, Yesterday, and Last 30 Days from Claude Code's local logs, as 0.7.x showed them. The logs
+/// belong to the account Claude Code is signed in to; an account whose identity isn't known yet, or a
+/// Claude Code login OpenUsage can't read, takes them.
+fn local_history(
+    ctx: &FetchContext,
+    tokens: &OAuthTokens,
+) -> (
+    Vec<crate::metric::MetricLine>,
+    std::collections::BTreeMap<String, crate::metric::UsageBreakdown>,
+) {
+    if let (Some(signed_in), Some(identity)) = (
+        local::signed_in_account(),
+        tokens.extras.get(OAuthTokens::IDENTITY_KEY),
+    ) {
+        let account = identity.split('/').next().unwrap_or("").to_lowercase();
+        if account != signed_in {
+            log::debug(
+                "plugin:claude",
+                &format!("{} is not Claude Code's login; no local spend", ctx.account.card_id()),
+            );
+            return Default::default();
+        }
+    }
+    // Tests never read the real Claude Code logs.
+    if cfg!(test) {
+        return Default::default();
+    }
+    match local::scan(ctx.now) {
+        Some(days) => local::history_lines(&days, ctx.now),
+        None => Default::default(),
+    }
 }
 
 fn profile_due(ctx: &FetchContext) -> bool {

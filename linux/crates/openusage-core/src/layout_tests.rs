@@ -315,13 +315,19 @@ fn visible_metrics_follow_metric_order_and_skip_hidden_ones() {
             "sonnet",
             "fable",
             "extra",
-            "rateLimitResets"
+            "rateLimitResets",
+            "today",
+            "yesterday",
+            "last30"
         ]
     );
     assert!(layout.set_hidden(&metric(&claude, "weekly"), true));
     assert_eq!(
         visible_keys(&claude, &layout),
-        vec!["session", "sonnet", "fable", "extra", "rateLimitResets"]
+        vec!["session", "sonnet", "fable", "extra", "rateLimitResets",
+            "today",
+            "yesterday",
+            "last30"]
     );
     assert_eq!(
         keys(&claude, &layout)[0],
@@ -373,12 +379,18 @@ fn hiding_and_reordering_an_accounts_metrics_survives_a_restart() {
             "weekly",
             "sonnet",
             "extra",
-            "rateLimitResets"
+            "rateLimitResets",
+            "today",
+            "yesterday",
+            "last30"
         ]
     );
     assert_eq!(
         visible_keys(&claude, &relaunched),
-        vec!["fable", "session", "sonnet", "extra", "rateLimitResets"]
+        vec!["fable", "session", "sonnet", "extra", "rateLimitResets",
+            "today",
+            "yesterday",
+            "last30"]
     );
     assert!(
         !relaunched.is_hidden(&metric(&codex, "weekly")),
@@ -550,7 +562,10 @@ fn a_new_metric_follows_declared_order_after_the_saved_ones() {
             "sonnet",
             "fable",
             "extra",
-            "rateLimitResets"
+            "rateLimitResets",
+            "today",
+            "yesterday",
+            "last30"
         ]
     );
 }
