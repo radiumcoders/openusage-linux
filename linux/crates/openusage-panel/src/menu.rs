@@ -171,7 +171,14 @@ fn column(rows: &[Item], act: &Rc<dyn Fn(Act)>) -> gtk4::Box {
         label.set_xalign(0.0);
         label.set_hexpand(true);
         button.set_child(Some(&label));
-        button.connect_clicked(move |_| action(kind.clone()));
+        button.connect_clicked(move |_| {
+            // Close first and act once the popover is gone: closing hands focus back to its anchor,
+            // which would pull it off a rename field the action just opened.
+            close_open();
+            let action = action.clone();
+            let kind = kind.clone();
+            gtk4::glib::idle_add_local_once(move || action(kind));
+        });
         box_.append(&button);
     }
     box_

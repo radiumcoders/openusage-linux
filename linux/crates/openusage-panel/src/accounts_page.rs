@@ -427,12 +427,16 @@ fn rename_entry(
     entry.add_css_class("rename");
     let commit = on_commit.clone();
     entry.connect_activate(move |entry| commit(entry.text().to_string()));
+    // Clicking away keeps the name, as on the Mac. The entry's text child holds the focus, so this
+    // watches focus leaving the entry, not the entry's own `has-focus`, which never turns on.
     let commit = on_commit.clone();
-    entry.connect_has_focus_notify(move |entry| {
-        if !entry.has_focus() {
+    let focus = gtk4::EventControllerFocus::new();
+    focus.connect_leave(move |focus| {
+        if let Some(entry) = focus.widget().and_downcast::<gtk4::Entry>() {
             commit(entry.text().to_string());
         }
     });
+    entry.add_controller(focus);
     let cancel = on_cancel.clone();
     let keys = gtk4::EventControllerKey::new();
     keys.connect_key_pressed(move |_, key, _, _| {

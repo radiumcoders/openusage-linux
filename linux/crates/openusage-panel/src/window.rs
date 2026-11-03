@@ -169,7 +169,7 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
     glib::timeout_add_local(Duration::from_secs(30), {
         let ctx = ctx.clone();
         move || {
-            rebuild(&ctx, false);
+            rebuild_unless_typing(&ctx);
             glib::ControlFlow::Continue
         }
     });
@@ -201,8 +201,9 @@ fn arm(ctx: &Rc<Ctx>) {
     }
     let ctx = ctx.clone();
     glib::timeout_add_local(Duration::from_millis(250), move || {
-        if ctx.window.is_visible() {
-            // Map is asynchronous; ask again once the layer surface exists so Escape reaches it.
+        // Map is asynchronous; ask again once the layer surface exists so Escape reaches it. A field
+        // that has focus keeps it: taking it ended a rename the moment it started.
+        if ctx.window.is_visible() && !typing(&ctx.window) {
             ctx.window.grab_focus();
         }
         glib::ControlFlow::Break
@@ -336,7 +337,20 @@ fn install_commands(ctx: &Rc<Ctx>) {
 }
 
 fn typing(window: &gtk4::ApplicationWindow) -> bool {
-    gtk4::prelude::GtkWindowExt::focus(window).is_some_and(|widget| widget.is::<gtk4::Entry>())
+    gtk4::prelude::GtkWindowExt::focus(window).is_some_and(|widget| {
+        widget.is::<gtk4::Entry>()
+            || widget.is::<gtk4::PasswordEntry>()
+            || widget.is::<gtk4::Text>()
+    })
+}
+
+/// A rebuild nobody asked for (the clock, a file changing) replaces every widget, so it would throw
+/// away a half-typed name or code. It waits until the field is done; that ends with its own rebuild.
+fn rebuild_unless_typing(ctx: &Rc<Ctx>) {
+    if ctx.window.is_visible() && typing(&ctx.window) {
+        return;
+    }
+    rebuild(ctx, false);
 }
 
 pub(crate) fn refresh_now(ctx: &Rc<Ctx>) {
@@ -490,7 +504,7 @@ fn monitor_directory(
         let pending = pending.clone();
         glib::timeout_add_local(Duration::from_millis(80), move || {
             pending.set(false);
-            rebuild(&ctx, false);
+            rebuild_unless_typing(&ctx);
             glib::ControlFlow::Break
         });
     });
