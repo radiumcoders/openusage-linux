@@ -34,13 +34,19 @@ cargo build --release --manifest-path linux/Cargo.toml
 `openusage panel`, or `openusage-panel --toggle`, opens and closes the usage panel. Waybar's left
 click runs that. The panel reads the same accounts, snapshots, and refresh status as the bar.
 
-All Usage opens with **Total Spend** when an account's provider reports history rows (ChatGPT,
-Cursor, Ollama, OpenCode): a donut of each provider's share of Today, Yesterday, or the last 30 days,
-summed over its accounts, with the total in the middle and a legend beside it. The menu next to the
-title switches between Cost, Cost/MTok, and Tokens. It uses only the dollars and tokens the provider
-reports, leaves out hidden history rows, and says so when a period has nothing to show. **Show Total
-Spend** in Settings turns it off. The period and metric are saved under the 0.7.x keys
-`openusage.totalSpend.period` and `openusage.totalSpend.metric`.
+All Usage opens with an overview card. Its title is a menu:
+
+- **Usage** (the default): one ring per account, filled to that account's tightest limit the way
+  its bar is (used or left, per Settings), with the tightest one in the middle and a legend beside it.
+- **Total Spend**, **Cost/MTok**, and **Tokens**: a Today / Yesterday / 30 Days switch over a donut
+  of each provider's share, summed over its accounts, with the total in the middle. Only providers
+  that report history rows count (ChatGPT, Cursor, Ollama, OpenCode); Claude reports only limits. A
+  period reported as zero shows an empty ring with its $0 amounts.
+
+Hidden metrics are left out of both. **Show Total Spend** in Settings turns the card off. The period
+and view are saved under `openusage.totalSpend.period` and `openusage.totalSpend.metric`.
+
+Scrolled content fades out at the tabs and the footer, as on the Mac.
 
 The **⋯** menu opens **Accounts** and **Settings** (Return opens Accounts from the dashboard). Accounts
 lists every account in the saved dashboard order. A hidden metric is left off the dashboard, the bar,
@@ -233,7 +239,7 @@ A line looks like `OpenUsage notice: [refresh] …`. Notices, warnings, and erro
 
 Some compositors leave layer surfaces out of screenshots. To capture the panel for a bug report, run
 `OPENUSAGE_DUMP=/tmp/panel.png openusage-panel`. It saves what it draws as a PNG shortly after opening,
-then quits. `OPENUSAGE_TAB=all` or `priority` picks the tab, and `OPENUSAGE_COLOR_SCHEME=light` or
+then quits. `OPENUSAGE_DUMP_HEIGHT` caps the capture's height so it scrolls as on a screen. `OPENUSAGE_TAB=all` or `priority` picks the tab, and `OPENUSAGE_COLOR_SCHEME=light` or
 `dark` forces the appearance. `OPENUSAGE_SCREEN` opens one screen for that capture: `accounts`,
 `detail`, `add`, `settings`, `copilot`, `browser`, `device`, `secret`, `hub`, `resets`, `breakdown`,
 or `menu`.

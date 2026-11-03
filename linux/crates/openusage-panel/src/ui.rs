@@ -98,9 +98,6 @@ pub fn page(
     scroll.set_child(Some(body));
     root.append(&scroll);
     if let Some(footer) = footer {
-        let rule = gtk4::Separator::new(gtk4::Orientation::Horizontal);
-        rule.add_css_class("footer-line");
-        root.append(&rule);
         root.append(footer);
     }
     Built {

@@ -42,7 +42,7 @@ script/install_linux.sh
 ```
 
 The script installs `openusage` and `openusage-panel` to `~/.local/bin`. The Linux panel's All Usage
-tab also has a **Total Spend** donut of the spend and tokens providers report. See [Linux](docs/linux.md).
+tab opens with a ring overview of every account's usage, which also switches to a **Total Spend** donut. See [Linux](docs/linux.md).
 
 ## Accounts
 

@@ -127,8 +127,8 @@ pub fn tracks_spend(account: &Account) -> bool {
 }
 
 /// Each provider's dollars and tokens for `period`, in the order `accounts` first names it. A history
-/// row hidden on the account is left out, as it is everywhere else on the dashboard. A provider
-/// with nothing for the period has no slice, never a zero one.
+/// row hidden on the account is left out, as it is everywhere else on the dashboard. A provider that
+/// reported the period with nothing in it keeps a zero slice; one that reported no row has none.
 pub fn total(
     period: SpendPeriod,
     accounts: &[Account],
@@ -169,7 +169,6 @@ pub fn total(
             }),
         }
     }
-    slices.retain(|slice| slice.dollars > 0.0 || slice.tokens > 0.0);
     slices
 }
 
@@ -315,12 +314,20 @@ mod tests {
         let slices = total(SpendPeriod::Today, &accounts, &snapshots, &layout);
         assert_eq!(
             slices,
-            vec![SpendSlice {
-                kind: ProviderKind::Cursor,
-                dollars: 12.5,
-                tokens: 1500.0
-            }]
+            vec![
+                SpendSlice {
+                    kind: ProviderKind::Cursor,
+                    dollars: 12.5,
+                    tokens: 1500.0
+                },
+                SpendSlice {
+                    kind: ProviderKind::Codex,
+                    dollars: 0.0,
+                    tokens: 0.0
+                },
+            ]
         );
+        assert!(project(&slices, SpendMetric::Cost).slices.len() == 1);
         layout.set_hidden(&format!("{}.today", home.card_id()), true);
         let slices = total(SpendPeriod::Today, &accounts, &snapshots, &layout);
         assert_eq!(slices[0].dollars, 10.0);

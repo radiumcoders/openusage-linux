@@ -39,9 +39,12 @@ window.openusage .section { font-size: 11px; font-weight: 600; }
 window.openusage .prio-title { font-size: 13px; font-weight: 560; }
 window.openusage .prio-quiet { font-size: 13px; font-weight: 450; }
 window.openusage .nums { font-variant-numeric: tabular-nums; }
-window.openusage .spend-center { font-size: 13px; font-weight: 600; }
-window.openusage .spend-unit { font-size: 9px; font-weight: 500; }
-window.openusage button.spend-metric { padding: 1px 6px; }
+window.openusage .spend-center { font-size: 16px; font-weight: 650; }
+window.openusage .spend-unit { font-size: 10px; font-weight: 500; }
+window.openusage .spend-name { font-size: 13px; font-weight: 500; }
+window.openusage .spend-amount { font-size: 13px; }
+window.openusage button.spend-metric { padding: 0 4px 0 0; }
+window.openusage .spend-chevron { font-size: 13px; font-weight: 600; margin-top: -4px; }
 window.openusage .status { font-size: 12px; font-weight: 700; min-width: 12px; }
 window.openusage .status-warn { color: #b35e00; }
 window.openusage .footer-text { font-size: 12px; }
@@ -145,6 +148,29 @@ window.openusage separator.hairline {
 window.openusage scrolledwindow,
 window.openusage scrolledwindow > viewport {
   background: transparent;
+}
+
+/* Scrolled content fades out at the tabs and the footer instead of being cut off by a line, as on
+   the Mac. GTK draws an undershoot only while there is more to scroll that way. */
+window.openusage scrolledwindow.body > undershoot.top {
+  background: linear-gradient(to bottom, #fbfbfb, rgba(251, 251, 251, 0) 14px);
+}
+window.openusage scrolledwindow.body > undershoot.bottom {
+  background: linear-gradient(to top, #fbfbfb, rgba(251, 251, 251, 0) 22px);
+}
+@media (prefers-color-scheme: dark) {
+  window.openusage:not(.force-light) scrolledwindow.body > undershoot.top {
+    background: linear-gradient(to bottom, #1c1c1e, rgba(28, 28, 30, 0) 14px);
+  }
+  window.openusage:not(.force-light) scrolledwindow.body > undershoot.bottom {
+    background: linear-gradient(to top, #1c1c1e, rgba(28, 28, 30, 0) 22px);
+  }
+}
+window.openusage.force-dark scrolledwindow.body > undershoot.top {
+  background: linear-gradient(to bottom, #1c1c1e, rgba(28, 28, 30, 0) 14px);
+}
+window.openusage.force-dark scrolledwindow.body > undershoot.bottom {
+  background: linear-gradient(to top, #1c1c1e, rgba(28, 28, 30, 0) 22px);
 }
 
 @media (prefers-color-scheme: dark) {

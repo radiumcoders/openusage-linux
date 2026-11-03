@@ -43,7 +43,7 @@ pub struct Actions {
     pub on_claim_reset: Rc<dyn Fn()>,
     pub on_claim_cancel: Rc<dyn Fn()>,
     pub on_spend_period: Rc<dyn Fn(openusage_core::spend::SpendPeriod)>,
-    pub on_spend_metric: Rc<dyn Fn(openusage_core::spend::SpendMetric)>,
+    pub on_spend_metric: Rc<dyn Fn(crate::model::CardMetric)>,
 }
 
 pub struct Chrome {
@@ -123,9 +123,7 @@ pub fn build(
         let (footer, updated, next) = footer(model, refreshing, &actions.on_refresh);
         (footer, Some(updated), Some(next))
     };
-    let rule = gtk4::Separator::new(gtk4::Orientation::Horizontal);
-    rule.add_css_class("footer-line");
-    root.append(&rule);
+    // As on the Mac, no rule above the footer: scrolled content fades out before it (`undershoot`).
     root.append(&footer);
 
     Built {

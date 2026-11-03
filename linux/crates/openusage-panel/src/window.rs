@@ -430,7 +430,13 @@ fn monitor_named(name: &str) -> Option<gdk::Monitor> {
 
 /// Dumps grow to the page instead of the monitor, so a screenshot includes the whole scroll.
 fn dump_max_height() -> Option<i32> {
-    std::env::var_os("OPENUSAGE_DUMP").map(|_| 4000)
+    // `OPENUSAGE_DUMP_HEIGHT` caps it, to capture the panel scrolling as it does on a screen.
+    std::env::var_os("OPENUSAGE_DUMP").map(|_| {
+        std::env::var("OPENUSAGE_DUMP_HEIGHT")
+            .ok()
+            .and_then(|height| height.parse().ok())
+            .unwrap_or(4000)
+    })
 }
 
 fn available_height(corner: Corner) -> i32 {
