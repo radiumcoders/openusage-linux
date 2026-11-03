@@ -79,6 +79,23 @@ pub(crate) fn view(ctx: &Rc<Ctx>, model: &Model, notice: Option<String>) -> view
                 window::rebuild(&ctx, false);
             })
         },
+        on_spend_period: {
+            let ctx = ctx.clone();
+            Rc::new(move |period| {
+                if ctx.rebuilding.get() {
+                    return;
+                }
+                crate::model::save_spend_setting(openusage_core::spend::PERIOD_KEY, period.raw());
+                window::rebuild(&ctx, false);
+            })
+        },
+        on_spend_metric: {
+            let ctx = ctx.clone();
+            Rc::new(move |metric| {
+                crate::model::save_spend_setting(openusage_core::spend::METRIC_KEY, metric.raw());
+                window::rebuild(&ctx, false);
+            })
+        },
     };
     let chrome = Chrome {
         preview: ctx.preview.get(),

@@ -427,6 +427,22 @@ fn settings(ctx: &Rc<Ctx>) -> view::Built {
                 window::rebuild(&ctx, false);
             })
         },
+        on_total_spend: {
+            let ctx = ctx.clone();
+            Rc::new(move |on| {
+                if ctx.rebuilding.get() {
+                    return;
+                }
+                let key = openusage_core::spend::SHOW_KEY;
+                if let Err(error) = Settings::open().set_bool(key, on) {
+                    openusage_core::log::error(
+                        "panel",
+                        &format!("could not save the Total Spend setting: {error}"),
+                    );
+                }
+                window::rebuild(&ctx, false);
+            })
+        },
     };
     settings_page::build(&snapshot, &hooks, ctx.max_height.get())
 }

@@ -12,6 +12,7 @@ use openusage_core::layout::{self, LayoutState};
 use openusage_core::metric::ProviderSnapshot;
 use openusage_core::paths;
 use openusage_core::refresh::INTERVAL_SECONDS;
+use openusage_core::spend::{self, SpendMetric, SpendPeriod};
 use openusage_core::store::{Settings, SnapshotCache};
 use openusage_core::widget::{self, DisplayMode};
 
@@ -28,6 +29,40 @@ pub struct Model {
     pub layout: LayoutState,
     /// Every metric of every account is hidden, so the dashboard points at Accounts.
     pub all_metrics_hidden: bool,
+    pub spend: SpendChoice,
+}
+
+/// The Total Spend card's switch in Settings and its saved period and metric.
+#[derive(Debug, Clone, Copy)]
+pub struct SpendChoice {
+    pub shown: bool,
+    pub period: SpendPeriod,
+    pub metric: SpendMetric,
+}
+
+impl SpendChoice {
+    pub fn read(settings: &Settings) -> Self {
+        Self {
+            shown: settings
+                .get(spend::SHOW_KEY)
+                .and_then(|value| value.as_boolean())
+                .unwrap_or(true),
+            period: settings
+                .string(spend::PERIOD_KEY)
+                .and_then(|raw| SpendPeriod::from_raw(&raw))
+                .unwrap_or(SpendPeriod::Today),
+            metric: settings
+                .string(spend::METRIC_KEY)
+                .and_then(|raw| SpendMetric::from_raw(&raw))
+                .unwrap_or(SpendMetric::Cost),
+        }
+    }
+}
+
+pub fn save_spend_setting(key: &str, raw: &str) {
+    if let Err(error) = Settings::open().set_string(key, raw) {
+        openusage_core::log::error("panel", &format!("could not save the Total Spend choice: {error}"));
+    }
 }
 
 pub struct Family {
@@ -71,6 +106,7 @@ pub fn load_with(layout: &LayoutState) -> Model {
     );
     let all_metrics_hidden = every_metric_hidden(&stored, &layout);
     let families = families_of(&accounts);
+    let spend = SpendChoice::read(&settings);
     Model {
         accounts,
         families,
@@ -80,6 +116,7 @@ pub fn load_with(layout: &LayoutState) -> Model {
         snapshots,
         layout: layout.clone(),
         all_metrics_hidden,
+        spend,
     }
 }
 

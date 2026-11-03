@@ -130,6 +130,13 @@ pub fn write(root: &Path) {
                         Some(5 * 3600 * 1000),
                     ),
                     MetricLine::percent("Weekly", 80.0, Some(now + Duration::days(2)), Some(week)),
+                    MetricLine::values(
+                        "Today",
+                        vec![
+                            MetricValue::new(18.20, MetricKind::Dollars),
+                            MetricValue::labeled(9_400_000.0, MetricKind::Count, "tokens"),
+                        ],
+                    ),
                 ],
                 notice: None,
                 refreshed_at: now - Duration::minutes(20),

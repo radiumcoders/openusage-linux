@@ -34,6 +34,14 @@ cargo build --release --manifest-path linux/Cargo.toml
 `openusage panel`, or `openusage-panel --toggle`, opens and closes the usage panel. Waybar's left
 click runs that. The panel reads the same accounts, snapshots, and refresh status as the bar.
 
+All Usage opens with **Total Spend** when an account's provider reports history rows (ChatGPT,
+Cursor, Ollama, OpenCode): a donut of each provider's share of Today, Yesterday, or the last 30 days,
+summed over its accounts, with the total in the middle and a legend beside it. The menu next to the
+title switches between Cost, Cost/MTok, and Tokens. It uses only the dollars and tokens the provider
+reports, leaves out hidden history rows, and says so when a period has nothing to show. **Show Total
+Spend** in Settings turns it off. The period and metric are saved under the 0.7.x keys
+`openusage.totalSpend.period` and `openusage.totalSpend.metric`.
+
 The **⋯** menu opens **Accounts** and **Settings** (Return opens Accounts from the dashboard). Accounts
 lists every account in the saved dashboard order. A hidden metric is left off the dashboard, the bar,
 and quota alerts. The limits JSON still includes it, as on the Mac.

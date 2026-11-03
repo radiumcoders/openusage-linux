@@ -41,7 +41,8 @@ Swift toolchain is not required.
 script/install_linux.sh
 ```
 
-The script installs `openusage` and `openusage-panel` to `~/.local/bin`. See [Linux](docs/linux.md).
+The script installs `openusage` and `openusage-panel` to `~/.local/bin`. The Linux panel's All Usage
+tab also has a **Total Spend** donut of the spend and tokens providers report. See [Linux](docs/linux.md).
 
 ## Accounts
 

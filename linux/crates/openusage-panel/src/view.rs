@@ -42,6 +42,8 @@ pub struct Actions {
     pub on_claim: Rc<dyn Fn(Uuid)>,
     pub on_claim_reset: Rc<dyn Fn()>,
     pub on_claim_cancel: Rc<dyn Fn()>,
+    pub on_spend_period: Rc<dyn Fn(openusage_core::spend::SpendPeriod)>,
+    pub on_spend_metric: Rc<dyn Fn(openusage_core::spend::SpendMetric)>,
 }
 
 pub struct Chrome {

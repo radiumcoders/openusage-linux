@@ -50,6 +50,7 @@ pub struct Hooks {
     pub on_reset: Rc<dyn Fn(bool)>,
     pub on_menu: Rc<dyn Fn(usize)>,
     pub on_alert: Rc<dyn Fn(usize, bool)>,
+    pub on_total_spend: Rc<dyn Fn(bool)>,
 }
 
 pub struct Snapshot {
@@ -57,6 +58,7 @@ pub struct Snapshot {
     pub absolute: bool,
     pub menu: usize,
     pub alerts: [bool; 3],
+    pub total_spend: bool,
 }
 
 impl Snapshot {
@@ -72,6 +74,7 @@ impl Snapshot {
             absolute: settings.string(crate::model::RESET_KEY).as_deref() == Some("absolute"),
             menu,
             alerts: ALERTS.map(|(_, _, key)| settings.bool(key)),
+            total_spend: crate::model::SpendChoice::read(&settings).shown,
         }
     }
 }
@@ -122,6 +125,12 @@ pub fn build(snapshot: &Snapshot, hooks: &Hooks, max_height: i32) -> Built {
             Rc::new(move |index| on_reset(index == 1))
         },
     ));
+    usage.append(&switch_row(
+        "Show Total Spend",
+        "Each provider's reported spend, on All Usage",
+        snapshot.total_spend,
+        hooks.on_total_spend.clone(),
+    ));
     body.append(&usage);
 
     body.append(&ui::section("Menu Bar Shows"));
@@ -152,6 +161,11 @@ fn alert_row(
     index: usize,
     on_alert: &Rc<dyn Fn(usize, bool)>,
 ) -> gtk4::Box {
+    let on_alert = on_alert.clone();
+    switch_row(title, subtitle, on, Rc::new(move |on| on_alert(index, on)))
+}
+
+fn switch_row(title: &str, subtitle: &str, on: bool, on_toggle: Rc<dyn Fn(bool)>) -> gtk4::Box {
     let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     row.add_css_class("fact");
     let text = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
@@ -162,8 +176,7 @@ fn alert_row(
     let switch = gtk4::Switch::new();
     switch.set_active(on);
     switch.set_valign(gtk4::Align::Center);
-    let on_alert = on_alert.clone();
-    switch.connect_active_notify(move |switch| on_alert(index, switch.is_active()));
+    switch.connect_active_notify(move |switch| on_toggle(switch.is_active()));
     row.append(&switch);
     row
 }

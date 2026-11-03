@@ -50,7 +50,18 @@ pub fn all_usage(model: &Model, actions: &Actions, chrome: &Chrome) -> gtk4::Wid
         targets,
         Rc::new(move |kind, scope, dragged, target| on_reorder(kind, scope, dragged, target)),
     );
-    list.upcast()
+    let hooks = crate::spend::Hooks {
+        on_period: actions.on_spend_period.clone(),
+        on_metric: actions.on_spend_metric.clone(),
+    };
+    let Some(spend) = crate::spend::card(model, &hooks) else {
+        return list.upcast();
+    };
+    // Outside the reorder list: the card is not a provider and doesn't drag.
+    let page = gtk4::Box::new(gtk4::Orientation::Vertical, 14);
+    page.append(&spend);
+    page.append(&list);
+    page.upcast()
 }
 
 fn provider_card(
