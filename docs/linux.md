@@ -54,7 +54,9 @@ supplement and a LiteLLM snapshot), the same way 0.7.x priced them:
   catalogs don't name keeps what Cursor charged.
 - Other providers that report history rows (ChatGPT, Ollama, OpenCode) use the dollars they report.
 
-Scrolled content fades out at the tabs and the footer, as on the Mac.
+Scrolled content fades out at the tabs and the footer, as on the Mac. A mouse wheel scrolls smoothly; a
+touchpad scrolls as GTK does. A page that refreshes while you scroll waits until you stop, and keeps
+its place.
 
 The **⋯** menu opens **Accounts** and **Settings** (Return opens Accounts from the dashboard). Accounts
 lists every account in the saved dashboard order. A hidden metric is left off the dashboard, the bar,

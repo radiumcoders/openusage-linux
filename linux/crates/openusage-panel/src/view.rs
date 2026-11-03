@@ -108,6 +108,7 @@ pub fn build(
     body.set_margin_bottom(8);
 
     let scroll = gtk4::ScrolledWindow::new();
+    crate::smooth::install(&scroll);
     scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
     scroll.set_propagate_natural_height(true);
     scroll.add_css_class("body");

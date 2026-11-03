@@ -22,6 +22,7 @@ mod session;
 mod settings_page;
 mod share;
 mod shot;
+mod smooth;
 mod spend;
 mod state;
 mod ui;

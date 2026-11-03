@@ -24,6 +24,8 @@ pub(crate) struct Ctx {
     pub(crate) refreshed_at: Cell<Option<DateTime<Utc>>>,
     pub(crate) refreshing: Cell<bool>,
     pub(crate) rebuilding: Cell<bool>,
+    /// A background rebuild is waiting for scrolling to settle.
+    pub(crate) rebuild_waiting: Cell<bool>,
     /// A transparent full-screen layer under the panel: a click on it closes the panel, the way a click
     /// outside closes the Mac popover. (Focus loss can't be used: Hyprland's focus-follows-mouse takes
     /// focus from the panel without any click.)
@@ -123,6 +125,7 @@ pub fn handle(app: &gtk4::Application, toggle: bool) {
         refreshed_at: Cell::new(None),
         refreshing: Cell::new(false),
         rebuilding: Cell::new(false),
+        rebuild_waiting: Cell::new(false),
         backdrop: backdrop.clone(),
         dirty: Cell::new(false),
         shown: Cell::new(false),
@@ -315,7 +318,7 @@ pub(crate) fn rebuild(ctx: &Rc<Ctx>, reset_scroll: bool) {
     fit(ctx, &built.root);
     if preserved > 0.0 {
         if let Some(scroll) = ctx.scroll.borrow().as_ref() {
-            scroll.vadjustment().set_value(preserved);
+            keep_scroll(&scroll.vadjustment(), preserved);
         }
     }
     ctx.rebuilding.set(false);
@@ -348,6 +351,17 @@ fn typing(window: &gtk4::ApplicationWindow) -> bool {
 /// away a half-typed name or code. It waits until the field is done; that ends with its own rebuild.
 fn rebuild_unless_typing(ctx: &Rc<Ctx>) {
     if ctx.window.is_visible() && typing(&ctx.window) {
+        return;
+    }
+    // Replacing the page mid-scroll would make it hitch; try again once scrolling settles.
+    if let Some(wait) = crate::smooth::settling().filter(|_| ctx.window.is_visible()) {
+        if !ctx.rebuild_waiting.replace(true) {
+            let ctx = ctx.clone();
+            glib::timeout_add_local_once(wait, move || {
+                ctx.rebuild_waiting.set(false);
+                rebuild_unless_typing(&ctx);
+            });
+        }
         return;
     }
     rebuild(ctx, false);
@@ -392,6 +406,38 @@ fn scroll_value(ctx: &Ctx) -> f64 {
         .as_ref()
         .map(|scroll| scroll.vadjustment().value())
         .unwrap_or(0.0)
+}
+
+/// Puts a rebuilt page back where it was scrolled. The new page has no height until it is laid out,
+/// and an adjustment clamps to its height, so setting the value now would land at the top; it is set
+/// again once the page is tall enough.
+fn keep_scroll(adjustment: &gtk4::Adjustment, value: f64) {
+    adjustment.set_value(value);
+    if (adjustment.value() - value).abs() < 0.5 {
+        return;
+    }
+    let handler: Rc<Cell<Option<glib::SignalHandlerId>>> = Rc::new(Cell::new(None));
+    let slot = handler.clone();
+    let id = adjustment.connect_changed(move |adjustment| {
+        let room = adjustment.upper() - adjustment.page_size();
+        if adjustment.page_size() <= 0.0 {
+            return;
+        }
+        adjustment.set_value(value.min(room.max(0.0)));
+        if room >= value {
+            if let Some(id) = slot.take() {
+                adjustment.disconnect(id);
+            }
+        }
+    });
+    handler.set(Some(id));
+    // The page may end up shorter than before; stop waiting after it has been laid out.
+    let weak = adjustment.downgrade();
+    glib::timeout_add_local_once(Duration::from_millis(500), move || {
+        if let (Some(adjustment), Some(id)) = (weak.upgrade(), handler.take()) {
+            adjustment.disconnect(id);
+        }
+    });
 }
 
 fn fit(ctx: &Ctx, root: &impl gtk4::prelude::IsA<gtk4::Widget>) {
