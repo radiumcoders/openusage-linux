@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::account::{Account, Credential, OAuthTokens};
 use crate::error::{LoginError, ProviderError};
 use crate::http::HttpClient;
+use crate::log;
 use crate::login::LoginPrompter;
 use crate::metric::ProviderUsage;
 use crate::vault::Vault;
@@ -102,6 +103,26 @@ impl FetchContext<'_> {
             Credential::OAuth(tokens) => Ok(tokens),
             Credential::ApiKey(_) => Err(ProviderError::SignInExpired(self.account.kind)),
         }
+    }
+
+    /// Starts a token renewal: waits out any other OpenUsage process renewing this account, and
+    /// returns the tokens it saved when it already did. Keep the lock until the new tokens are saved.
+    pub fn begin_renewal(
+        &self,
+        stale: &OAuthTokens,
+    ) -> (crate::vault::RenewalLock, Option<OAuthTokens>) {
+        let lock = crate::vault::RenewalLock::acquire(self.account.id);
+        let stored = crate::vault::renewed_elsewhere(self.vault, self.account.id, stale);
+        if stored.is_some() {
+            log::debug(
+                "auth",
+                &format!(
+                    "{} sign-in was renewed by another process; using it",
+                    self.account.card_id()
+                ),
+            );
+        }
+        (lock, stored)
     }
 
     /// Saves renewed tokens. A provider that rotates refresh tokens must save before using the new ones.

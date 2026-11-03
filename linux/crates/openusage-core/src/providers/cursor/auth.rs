@@ -59,6 +59,10 @@ pub(crate) fn refresh(
     let Some(refresh_token) = tokens.refresh_token.clone() else {
         return Err(ProviderError::SignInExpired(ProviderKind::Cursor));
     };
+    let (_renewal, elsewhere) = ctx.begin_renewal(tokens);
+    if let Some(stored) = elsewhere {
+        return Ok(stored);
+    }
     let response = client::refresh_token(ctx.http, &refresh_token)?;
     if response
         .json()

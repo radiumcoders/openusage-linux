@@ -238,6 +238,11 @@ the command line:
 secret-tool lookup service com.robinebers.openusage.accounts account <account-uuid>
 ```
 
+Right after login the keyring can answer before it has loaded its items. A lookup that finds nothing
+is asked again for a few seconds before the account asks to sign in again, so a reboot doesn't sign
+anyone out. Token renewals take a per-account lock in `$XDG_RUNTIME_DIR/openusage`, so the Waybar
+module, `openusage refresh`, and the panel never spend the same refresh token twice.
+
 The account id in the keyring is the account UUID in uppercase. If `secret-tool` is not installed, the
 error names libsecret and a Secret Service keyring. If `notify-send` is not installed, quota alerts are
 skipped and a warning is logged. If `xdg-open` is not installed, a browser sign-in cannot open its

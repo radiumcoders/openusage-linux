@@ -529,8 +529,15 @@ fn authorize(
             account.card_id()
         ),
     );
-    tokens = renew(http, &tokens).map_err(as_outcome)?;
-    save(account, vault, &tokens);
+    let _renewal = crate::vault::RenewalLock::acquire(account.id);
+    tokens = match crate::vault::renewed_elsewhere(vault, account.id, &tokens) {
+        Some(stored) => stored,
+        None => {
+            let renewed = renew(http, &tokens).map_err(as_outcome)?;
+            save(account, vault, &renewed);
+            renewed
+        }
+    };
     let response = http.send(request(&tokens)).map_err(as_outcome)?;
     Ok((tokens, response))
 }

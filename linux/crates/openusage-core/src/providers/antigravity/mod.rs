@@ -116,6 +116,10 @@ fn fresh_tokens(ctx: &mut FetchContext<'_>) -> Result<OAuthTokens, ProviderError
 }
 
 fn renew(ctx: &mut FetchContext<'_>, tokens: &OAuthTokens) -> Result<OAuthTokens, ProviderError> {
+    let (_renewal, elsewhere) = ctx.begin_renewal(tokens);
+    if let Some(stored) = elsewhere {
+        return Ok(stored);
+    }
     let Some(refresh_token) = tokens.refresh_token.clone() else {
         return Ok(tokens.clone());
     };

@@ -237,6 +237,11 @@ fn renew(ctx: &mut FetchContext, tokens: OAuthTokens) -> Result<OAuthTokens, Pro
     let Some(refresh) = tokens.refresh_token.clone() else {
         return Ok(tokens);
     };
+    // Tokens this process couldn't save are newer than the keyring's copy, which is not checked then.
+    let (_renewal, elsewhere) = ctx.begin_renewal(&tokens);
+    if let Some(stored) = elsewhere.filter(|_| ctx.state.get::<OAuthTokens>(UNSAVED).is_none()) {
+        return Ok(stored);
+    }
     let granted = refresh_grant(ctx.http, &refresh, ctx.now)?;
     let mut updated = tokens;
     updated.access_token = granted.access_token;
